@@ -26,6 +26,45 @@ NODE_PORT = int(os.getenv("NODE_PORT", "8001"))
 app = FastAPI(title=f"Edge Node {NODE_ID}")
 task_queue = asyncio.Queue()
 
+import random
+
+async def simulate_execution(task: Task):
+    """
+    Simulate execution berdasarkan resource demand task
+    """
+
+    # Ambil dari task (fallback kalau belum ada field)
+    cpu_demand = getattr(task, "cpu_demand", 0.1)
+    memory_demand = getattr(task, "memory_demand", 0.1)
+    compute_cost = getattr(task, "compute_cost", 1000)
+
+    # Normalize supaya nggak terlalu lama
+    SCALING_FACTOR = 5e6
+    base_time = compute_cost / SCALING_FACTOR
+
+    # CPU load saat ini
+    current_cpu = psutil.cpu_percent() / 100.0
+
+    # Queue pressure
+    queue_factor = min(task_queue.qsize() * 0.05, 1.0)
+
+    # Random noise (biar realistis)
+    noise = random.uniform(0.9, 1.1)
+
+    # Final execution time
+    exec_time = base_time * (1 + current_cpu + queue_factor) * noise
+
+    # Batas biar nggak absurd
+    exec_time = max(0.1, min(exec_time, 5))
+
+    logger.info(
+        f"⏱️ Exec time: {exec_time:.2f}s | CPU load: {current_cpu:.2f} | Queue: {task_queue.qsize()}"
+    )
+
+    await asyncio.sleep(exec_time)
+
+    return exec_time
+
 @app.on_event("startup")
 async def startup():
     logger.info(f"🖥️ Edge Node {NODE_ID} Started")
@@ -39,7 +78,7 @@ async def startup():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    cpu_percent = psutil.cpu_percent(interval=1)
+    cpu_percent = psutil.cpu_percent(interval=None)
     memory_percent = psutil.virtual_memory().percent
     
     return {
@@ -69,14 +108,16 @@ async def process_tasks():
             task = await task_queue.get()
             logger.info(f"⚙️ Processing task: {task.task_id}")
             
-            # Simulate processing
-            await asyncio.sleep(2)
+            exec_time = await simulate_execution(task)
             
             # Submit result ke central
             result = TaskResult(
                 task_id=task.task_id,
                 status="completed",
-                result={"processed_data": f"Processed by {NODE_ID}"},
+                result={
+                    "processed_data": f"Processed by {NODE_ID}",
+                    "execution_time": exec_time
+                },
                 node_id=NODE_ID,
                 completed_at=datetime.now()
             )
