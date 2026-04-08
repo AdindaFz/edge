@@ -2,6 +2,8 @@
 import os
 
 # Network Configuration
+SYSTEM_MODE = "online"  
+# "online" | "offline"
 CENTRAL_IP = "192.168.56.109"  # ← Update dengan IP vm-central Anda
 CENTRAL_PORT = 8000
 

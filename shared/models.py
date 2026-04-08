@@ -5,10 +5,12 @@ from datetime import datetime
 
 class Task(BaseModel):
     task_id: str
-    name: str
-    data: Dict[str, Any]
-    priority: int = 1
-    created_at: datetime = None
+    cpu_demand: float
+    memory_demand: float
+    compute_cost: float
+    arrival_time: float
+    task_size: str 
+    experiment_id: str 
     
     class Config:
         json_schema_extra = {
