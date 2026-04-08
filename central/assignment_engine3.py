@@ -14,46 +14,28 @@ def random_assignment(tasks, nodes):
     return assignments
 
 def optimized_assignment(tasks, nodes):
-
+    """
+    Placeholder untuk optimizer (Tabu / PSO nanti)
+    """
     assignments = {}
-    node_ids = list(nodes.keys())
-
-    # 🔥 INIT LOAD
-    node_load = {nid: 0 for nid in node_ids}
 
     for task in tasks:
         best_node = None
         best_score = float("inf")
 
-        cpu_demand = task["cpu_demand"]
-
-        for node_id in node_ids:
+        for node_id in nodes.keys():
             node = NODE_RESOURCES[node_id]
 
-            cpu_cap = node["cpu"]
-            current_load = node_load[node_id]
+            compute_cost = task.get("compute_cost", 1000)
 
-            # 🔥 UTILIZATION
-            cpu_util = current_load / cpu_cap
-
-            # 🔥 EXEC TIME (SAMA DENGAN MODEL TABU)
-            exec_time = cpu_demand * (1 + cpu_util)
-
+            exec_time = compute_cost / node["cpu"]
             latency = exec_time + node.get("network_delay", 1)
-            energy = exec_time * node.get("power", 1.5)
 
-            # 🔥 OBJECTIVE (SIMPLE)
-            score = latency + energy
-
-            if score < best_score:
-                best_score = score
+            if latency < best_score:
+                best_score = latency
                 best_node = node_id
 
-        # assign
         assignments[task["task_id"]] = best_node
-
-        # update load
-        node_load[best_node] += cpu_demand
 
     return assignments
 
@@ -98,16 +80,16 @@ def tabu_assignment(tasks, nodes, local_mode="none"):
     # TABU (GLOBAL)
     # =========================
     diffusion = DiffusionLocalOptimizer(
-        adjacency={ i:[j for j in range (N) if j !=i] for i in range(len(node_ids))},
+        adjacency={0: [1], 1: [0]},
         gamma=0.1,
         max_steps=3
     )
 
-    best_assign, _ = hybrid_tabu_diff(
+    best_assign = hybrid_tabu_diff(
         cpu_demands,
         cpu_caps,
-        network_delays=[1.0 for _ in node_ids],
-        powers=[1.5 for _ in node_ids],
+        network_delays=[1, 2],
+        powers=[1.2, 2.5],
         diffusion=diffusion
     )
 
@@ -117,7 +99,7 @@ def tabu_assignment(tasks, nodes, local_mode="none"):
     if local_mode == "diffusion":
 
         diffusion = DiffusionLocalOptimizer(
-            adjacency={ i:[j for j in range (N) if j !=i] for i in range(len(node_ids))},
+            adjacency={0: [1], 1: [0]},
             gamma=0.1,
             max_steps=3
         )
@@ -138,3 +120,12 @@ def tabu_assignment(tasks, nodes, local_mode="none"):
         assignments[task["task_id"]] = node_id
 
     return assignments
+
+
+def build_local_optimizer(name):
+
+    if name == "diffusion":
+        return DiffusionLocalOptimizer(adjacency={0:[1],1:[0]})
+
+    elif name == "none":
+        return None
