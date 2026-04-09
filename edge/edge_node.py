@@ -1,54 +1,188 @@
+# edge/edge_node.py
+from fastapi import FastAPI
+import uvicorn
+from datetime import datetime
+import asyncio
+import httpx
+import psutil
+import logging
 import os
+import sys
+import json
 
-# Network Configuration
-SYSTEM_MODE = "online"
-# "online" | "offline"
+# Add current directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Menggunakan IP dari adinda-central
-CENTRAL_IP = "10.33.102.106"
-CENTRAL_PORT = 8000
+from config import CENTRAL_IP, CENTRAL_PORT
+from shared.models import Task, TaskResult, NodeStatus
 
-EDGE_NODES = {
-    "edge-1": {
-        "ip": "10.33.102.107",    # adinda1
-        "port": 8001
-    },
-    "edge-2": {
-        "ip": "10.33.102.108",    # adinda2
-        "port": 8002
-    },
-    "edge-3": {
-        "ip": "10.33.102.109",    # adinda3
-        "port": 8003
-    },
-    "edge-4": {
-        "ip": "10.33.102.110",    # adinda4
-        "port": 8004
-    },
-    "edge-5": {
-        "ip": "10.33.102.111",    # adinda5
-        "port": 8005
-    },
-    "edge-6": {
-        "ip": "10.33.102.112",    # adinda6
-        "port": 8006
-    },
-    "edge-7": {
-        "ip": "10.33.102.113",    # adinda7
-        "port": 8007
-    },
-    "edge-8": {
-        "ip": "10.33.102.114",    # adinda8
-        "port": 8008
-    },
-    "edge-9": {
-        "ip": "10.33.102.115",    # adinda9
-        "port": 8009
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Get node ID dari environment variable
+NODE_ID = os.getenv("NODE_ID", "edge-node-5")
+NODE_PORT = int(os.getenv("NODE_PORT", "8005"))
+
+app = FastAPI(title=f"Edge Node {NODE_ID}")
+task_queue = asyncio.Queue()
+
+import random
+
+async def simulate_execution(task: Task):
+    """
+    Simulate execution berdasarkan resource demand task
+    """
+
+    # Ambil dari task (fallback kalau belum ada field)
+    cpu_demand = getattr(task, "cpu_demand", 0.1)
+    memory_demand = getattr(task, "memory_demand", 0.1)
+    compute_cost = getattr(task, "compute_cost", 1000)
+
+    # Normalize supaya nggak terlalu lama
+    SCALING_FACTOR = 5e6
+    base_time = compute_cost / SCALING_FACTOR
+
+    # CPU load saat ini
+    current_cpu = psutil.cpu_percent() / 100.0
+
+    # Queue pressure
+    queue_factor = min(task_queue.qsize() * 0.05, 1.0)
+
+    # Random noise (biar realistis)
+    noise = random.uniform(0.9, 1.1)
+
+    # Final execution time
+    exec_time = base_time * (1 + current_cpu + queue_factor) * noise
+
+    # Batas biar nggak absurd
+    exec_time = max(0.1, min(exec_time, 5))
+
+    logger.info(
+        f"⏱️ Exec time: {exec_time:.2f}s | CPU load: {current_cpu:.2f} | Queue: {task_queue.qsize()}"
+    )
+
+    await asyncio.sleep(exec_time)
+
+    return exec_time
+
+@app.on_event("startup")
+async def startup():
+    logger.info(f"🖥️ Edge Node {NODE_ID} Started")
+    logger.info(f"Listening on port {NODE_PORT}")
+    logger.info(f"Central Gateway: {CENTRAL_IP}:{CENTRAL_PORT}")
+
+    # Start heartbeat & task processing
+    asyncio.create_task(heartbeat())
+    asyncio.create_task(process_tasks())
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    cpu_percent = psutil.cpu_percent(interval=None)
+    memory_percent = psutil.virtual_memory().percent
+
+    return {
+        "status": "healthy",
+        "node_id": NODE_ID,
+        "cpu_usage": cpu_percent,
+        "memory_usage": memory_percent,
+        "timestamp": datetime.now().isoformat()
     }
-}
 
-# System Configuration
-LOG_LEVEL = "INFO"
-MAX_WORKERS = 4
-TASK_TIMEOUT = 300  # seconds
-HEALTH_CHECK_INTERVAL = 10  # seconds
+@app.post("/tasks")
+async def receive_task(task: Task):
+    """Terima task dari central gateway"""
+    logger.info(f"📥 Task received: {task.task_id}")
+    await task_queue.put(task)
+
+    return {
+        "task_id": task.task_id,
+        "status": "queued",
+        "node_id": NODE_ID
+    }
+
+async def process_tasks():
+    """Process tasks dari queue"""
+    while True:
+        try:
+            task = await task_queue.get()
+            logger.info(f"⚙️ Processing task: {task.task_id}")
+
+            exec_time = await simulate_execution(task)
+
+            # Submit result ke central
+            result = TaskResult(
+                task_id=task.task_id,
+                status="completed",
+                result={
+                    "processed_data": f"Processed by {NODE_ID}",
+                    "execution_time": exec_time
+                },
+                node_id=NODE_ID,
+                completed_at=datetime.now()
+            )
+
+            await submit_result(result)
+            logger.info(f"✅ Task completed: {task.task_id}")
+
+        except Exception as e:
+            logger.error(f"❌ Error processing task: {e}")
+            await asyncio.sleep(1)
+
+async def submit_result(result: TaskResult):
+    """Submit hasil task ke central gateway"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Convert model to dict untuk JSON serialization
+            result_dict = result.model_dump(mode='json')
+
+            await client.post(
+                f"http://{CENTRAL_IP}:{CENTRAL_PORT}/results/{result.task_id}",
+                json=result_dict,
+                timeout=10.0
+            )
+            logger.info(f"📤 Result submitted for {result.task_id}")
+    except Exception as e:
+        logger.error(f"Failed to submit result: {e}")
+
+async def heartbeat():
+    """Send heartbeat ke central gateway"""
+    while True:
+        try:
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory_percent = psutil.virtual_memory().percent
+            tasks_count = task_queue.qsize()
+
+            status = NodeStatus(
+                node_id=NODE_ID,
+                status="healthy",
+                cpu_usage=cpu_percent,
+                memory_usage=memory_percent,
+                tasks_count=tasks_count,
+                last_heartbeat=datetime.now()
+            )
+
+            async with httpx.AsyncClient() as client:
+                # Convert model to dict untuk JSON serialization
+                status_dict = status.model_dump(mode='json')
+
+                await client.post(
+                    f"http://{CENTRAL_IP}:{CENTRAL_PORT}/nodes/status",
+                    json=status_dict,
+                    timeout=5.0
+                )
+
+            logger.info(f"💓 Heartbeat sent - CPU: {cpu_percent:.1f}%, Memory: {memory_percent:.1f}%")
+
+        except Exception as e:
+            logger.error(f"Heartbeat failed: {e}")
+
+        await asyncio.sleep(10)
+
+if __name__ == "__main__":
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=NODE_PORT,
+        log_level="info"
+    )
