@@ -1,258 +1,282 @@
 import numpy as np
-
-import numpy as np
-
-
-# =========================================================
-# COST FUNCTION (GLOBAL, CONSISTENT)
-# =========================================================
-def compute_total_cost(
-    assignments,
-    cpu_demands,
-    cpu_caps,
-    network_delays,
-    powers,
-    weight_latency=0.6,
-    weight_energy=0.4,
-    LAT_REF=1.5,
-    ENG_REF=0.2
-):
-    N_nodes = len(cpu_caps)
-    N_tasks = len(assignments)
-
-    node_load = np.zeros(N_nodes)
-    for i in range(N_tasks):
-        node_load[assignments[i]] += cpu_demands[i]
-
-    cpu_util = node_load / cpu_caps
-
-    total_cost = 0
-
-    for t in range(N_tasks):
-        node = assignments[t]
-
-        # 🔥 VM-ALIGNED MODEL
-        exec_time = cpu_demands[t] * (1 + cpu_util[node])
-
-        latency = exec_time + network_delays[node]
-        energy = exec_time * powers[node]
-
-        # 🔥 NORMALIZATION
-        latency_norm = latency / LAT_REF
-        energy_norm = energy / ENG_REF
-
-        total_cost += (
-            weight_latency * latency_norm +
-            weight_energy * energy_norm
-        )
-
-    return total_cost / N_tasks, cpu_util
-
+from central.simulation_model import energy_of_configuration, latency_of_configuration
+import time
 
 # =========================================================
-# HYBRID TABU + DIFFUSION (FINAL)
+# TABU + ENERGY FOCUS
 # =========================================================
 def hybrid_tabu_diff(
     cpu_demands,
     cpu_caps,
-    network_delays,
-    powers,
-    TABU_MAX_ITER=100,
-    TABU_TENURE=10,
-    NUM_MOVES=30,
-    diffusion=None
+    mem_demands,
+    mem_caps,
+    latency_ms,
+    node_powers,
+    init_assign=None,
+    TABU_MAX_ITER=300,
+    TABU_TENURE=30,
+    NUM_MOVES=70,
+    diffusion=None,
+    E_ref=None,
+    L_ref=None,
+    energy_weight=0.6
 ):
 
     N_tasks = len(cpu_demands)
     N_nodes = len(cpu_caps)
 
-    # ======================
-    # INIT
-    # ======================
-    current_assign = np.arange(N_tasks) % N_nodes
-    best_assign = current_assign.copy()
+    if init_assign is not None:
+        current_assign = init_assign.copy()
+    else:
+        current_assign = np.random.randint(0, N_nodes, size=N_tasks)
 
-    best_cost, cpu_util = compute_total_cost(
+    gbest_assign = current_assign.copy()
+    gbest_cost, _ = compute_total_cost_energy_focused(
         current_assign,
         cpu_demands,
+        mem_demands,
         cpu_caps,
-        network_delays,
-        powers
+        mem_caps,
+        latency_ms,
+        node_powers,
+        E_ref,
+        L_ref,
+        energy_weight=energy_weight
     )
-
+    
+    print(f"[INIT] Initial cost: {gbest_cost:.4f}, assignment: {np.bincount(current_assign)}")
+    
     tabu_dict = {}
     no_improve_counter = 0
+    history = {"obj": [], "time": []}
+    start_time = time.perf_counter()
 
-    history = []
-
-    # ======================
-    # MAIN LOOP
-    # ======================
     for it in range(TABU_MAX_ITER):
-
+        
+        # ✅ COMPUTE LOAD ONCE
+        load, cpu_util, mem_util = compute_node_utilization(
+            current_assign, cpu_demands, cpu_caps, mem_demands, mem_caps
+        )
+        
         best_candidate = None
         best_candidate_cost = float("inf")
         best_move = None
 
-        # ======================
-        # GENERATE MOVES
-        # ======================
+        # ✅ GENERATE CANDIDATES
         for _ in range(NUM_MOVES):
-
-            move_type = np.random.choice(["single", "swap"])
-
-            # ---------- SINGLE MOVE ----------
-            if move_type == "single":
+            
+            # Move type: 60% single, 40% swap (proven combination)
+            if np.random.rand() < 0.6:
+                # ===== SINGLE MOVE (weighted by inverse util) =====
                 t = np.random.randint(0, N_tasks)
-
-                weights = 1 / (1 + cpu_util)
-                weights /= weights.sum()
-
-                new_node = np.random.choice(range(N_nodes), p=weights)
-
+                
+                # Weight by inverse utilization (prefer underloaded nodes)
+                node_weights = 1.0 / (1.0 + cpu_util)
+                node_weights /= node_weights.sum()
+                
+                new_node = np.random.choice(range(N_nodes), p=node_weights)
+                
                 if new_node == current_assign[t]:
                     continue
-
-                trial = current_assign.copy()
-                trial[t] = new_node
-
+                
+                trial_assign = current_assign.copy()
+                trial_assign[t] = new_node
                 move = ("single", t, new_node)
-
-            # ---------- SWAP MOVE ----------
+                
             else:
-                t1 = np.random.randint(0, N_tasks)
-                t2 = np.random.randint(0, N_tasks)
-
-                if t1 == t2:
-                    continue
-
-                trial = current_assign.copy()
-                trial[t1], trial[t2] = trial[t2], trial[t1]
-
+                # ===== SWAP MOVE (overload-aware) =====
+                overloaded_nodes = np.where(cpu_util > 0.8)[0]
+                underloaded_nodes = np.where(cpu_util < 0.6)[0]
+                
+                if len(overloaded_nodes) > 0 and len(underloaded_nodes) > 0:
+                    # Prefer tasks on overloaded nodes
+                    overloaded_tasks = [
+                        idx for idx in range(N_tasks)
+                        if current_assign[idx] in overloaded_nodes
+                    ]
+                    underloaded_tasks = [
+                        idx for idx in range(N_tasks)
+                        if current_assign[idx] in underloaded_nodes
+                    ]
+                    
+                    if len(overloaded_tasks) > 0 and len(underloaded_tasks) > 0:
+                        t1 = np.random.choice(overloaded_tasks)
+                        t2 = np.random.choice(underloaded_tasks)
+                    else:
+                        continue
+                else:
+                    t1 = np.random.randint(0, N_tasks)
+                    t2 = np.random.randint(0, N_tasks)
+                    if t1 == t2:
+                        continue
+                
+                trial_assign = current_assign.copy()
+                trial_assign[t1], trial_assign[t2] = trial_assign[t2], trial_assign[t1]
                 move = ("swap", min(t1, t2), max(t1, t2))
-
-            # ======================
-            # EVALUATE
-            # ======================
-            trial_cost, trial_util = compute_total_cost(
-                trial,
+            
+            # ===== EVALUATE =====
+            trial_cost, _ = compute_total_cost_energy_focused(
+                trial_assign,
                 cpu_demands,
+                mem_demands,
                 cpu_caps,
-                network_delays,
-                powers
+                mem_caps,
+                latency_ms,
+                node_powers,
+                E_ref,
+                L_ref,
+                energy_weight=energy_weight
             )
-
-            # penalty overload
-            trial_cost += 2.0 * np.mean(trial_util**2)
-
-            # ======================
-            # TABU CHECK
-            # ======================
+            
+            # ===== TABU CHECK =====
             is_tabu = move in tabu_dict and tabu_dict[move] > it
-
-            if is_tabu and trial_cost >= best_cost:
-                continue
-
-            if trial_cost < best_candidate_cost:
-                best_candidate = trial
+            is_aspiration = trial_cost < gbest_cost  # Allow if better than best
+            
+            if (not is_tabu or is_aspiration) and trial_cost < best_candidate_cost:
                 best_candidate_cost = trial_cost
+                best_candidate = trial_assign.copy()
                 best_move = move
 
-        # ======================
-        # APPLY MOVE
-        # ======================
+        # ===== NO CANDIDATE? SKIP =====
         if best_candidate is None:
-            continue
-
-        current_assign = best_candidate.copy()
-        tabu_dict[best_move] = it + TABU_TENURE
-
-        # ======================
-        # UPDATE GLOBAL BEST
-        # ======================
-        if best_candidate_cost < best_cost:
-            best_cost = best_candidate_cost
-            best_assign = best_candidate.copy()
-            no_improve_counter = 0
-        else:
             no_improve_counter += 1
+        else:
+            # ===== UPDATE CURRENT =====
+            current_assign = best_candidate.copy()
+            tabu_dict[best_move] = it + TABU_TENURE
+            
+            # ===== UPDATE GLOBAL BEST =====
+            if best_candidate_cost < gbest_cost:
+                gbest_cost = best_candidate_cost
+                gbest_assign = best_candidate.copy()
+                no_improve_counter = 0
+                print(f"[TABU] Iter {it} | Cost={gbest_cost:.4f} ✅")
+            else:
+                no_improve_counter += 1
 
-        # ======================
-        # DIVERSIFICATION
-        # ======================
-        if no_improve_counter > 15:
-
-            num_shake = int(0.2 * N_tasks)
-
+        # ✅ DIVERSIFICATION (proven strategy)
+        if no_improve_counter > 20:
+            print(f"[SHAKE] Iter {it}: No improve for 20 iters, diversifying...")
+            num_shake = max(1, int(0.2 * N_tasks))
             for _ in range(num_shake):
                 t = np.random.randint(0, N_tasks)
                 current_assign[t] = np.random.randint(0, N_nodes)
-
             no_improve_counter = 0
 
-        # ======================
-        # DIFFUSION
-        # ======================
-        if diffusion is not None and no_improve_counter > 5:
-
-            refined = diffusion.refine(
-                best_assign,
-                cpu_demands,
-                cpu_caps
-            )
-
-            refined_cost, _ = compute_total_cost(
+        # ✅ DIFFUSION (setiap 10 iters atau no_improve > 15)
+        if diffusion is not None and (it % 10 == 0 or no_improve_counter > 15):
+            refined = diffusion.refine(gbest_assign, cpu_demands, cpu_caps)
+            refined_cost, _ = compute_total_cost_energy_focused(
                 refined,
                 cpu_demands,
+                mem_demands,
                 cpu_caps,
-                network_delays,
-                powers
+                mem_caps,
+                latency_ms,
+                node_powers,
+                E_ref,
+                L_ref,
+                energy_weight=energy_weight
             )
+            
+            if refined_cost < gbest_cost:
+                gbest_cost = refined_cost
+                gbest_assign = refined.copy()
+                print(f"[DIFF] Iter {it} | Cost={gbest_cost:.4f} ✅")
+                no_improve_counter = 0
 
-            if refined_cost < best_cost:
-                best_cost = refined_cost
-                best_assign = refined.copy()
+        # ===== LOGGING =====
+        history["obj"].append(gbest_cost)
+        history["time"].append(time.perf_counter() - start_time)
 
-            print(f"[DIFF] Applied at iter {it} | Cost={best_cost:.4f}")
-            no_improve_counter = 0
+        if it % 10 == 0:
+            print(f"[TABU+DIFF] Iter {it} | Cost={gbest_cost:.4f}")
 
-        # ======================
-        # LOG
-        # ======================
-        history.append(best_cost)
-        print(f"[TABU+DIFF] Iter {it} | Cost={best_cost:.4f}")
+    return gbest_assign, history
 
-    return best_assign, history
 
-def compute_total_cost(assignments, cpu_demands, cpu_caps, network_delays, powers,
-                       weight_latency=0.6, weight_energy=0.4,
-                       LAT_REF=1.5, ENG_REF=0.190):
-
+def compute_node_utilization(assignments, cpu_demands, cpu_caps, mem_demands, mem_caps):
+    """Helper untuk compute load"""
     N_nodes = len(cpu_caps)
-    N_tasks = len(assignments)
+    cpu_used = np.zeros(N_nodes)
+    mem_used = np.zeros(N_nodes)
+    
+    for t, node in enumerate(assignments):
+        cpu_used[node] += cpu_demands[t]
+        mem_used[node] += mem_demands[t]
+    
+    cpu_util = cpu_used / np.maximum(cpu_caps, 1e-6)
+    mem_util = mem_used / np.maximum(mem_caps, 1e-6)
+    
+    return cpu_used, cpu_util, mem_util
 
-    node_load = np.zeros(N_nodes)
-    for i in range(N_tasks):
-        node_load[assignments[i]] += cpu_demands[i]
 
-    cpu_util = node_load / cpu_caps
+def compute_total_cost_energy_focused(
+    assignments,
+    cpu_demands,
+    mem_demands,
+    cpu_caps,
+    mem_caps,
+    latency_ms,
+    node_powers,  # ✅ ADD THIS
+    E_ref=None,
+    L_ref=None,
+    energy_weight=0.8
+):
+    """
+    ✅ Use REAL node power, not model power
+    """
 
-    total_cost = 0
+    # ======================
+    # BASE METRICS
+    # ======================
+    N_nodes = len(cpu_caps)
 
-    for t in range(N_tasks):
-        node = assignments[t]
+    cpu_used = np.zeros(N_nodes)
+    for t, node in enumerate(assignments):
+        cpu_used[node] += cpu_demands[t]
 
-        exec_time = cpu_demands[t] / (cpu_caps[node] * (1 + cpu_util[node]))
-        latency = exec_time + network_delays[node]
-        energy = exec_time * powers[node]
+    cpu_util = cpu_used / cpu_caps
+    cpu_util = np.clip(cpu_util, 0, 2.0)
 
-        # 🔥 NORMALIZATION
-        latency_norm = latency / LAT_REF
-        energy_norm = energy / ENG_REF
+    # ✅ REAL ENERGY using node power
+    total_energy = energy_of_configuration(
+        assignments,
+        cpu_demands,
+        mem_demands,
+        cpu_caps,
+        mem_caps,
+        node_powers=node_powers
+    )
 
-        total_cost += (
-            weight_latency * latency_norm +
-            weight_energy * energy_norm
-        )
+    # ======================
+    # LATENCY (keep same)
+    # ======================
+    latency, _ = latency_of_configuration(
+        assignments,
+        cpu_demands,
+        mem_demands,
+        latency_ms,
+        cpu_caps,
+        mem_caps
+    )
 
-    return total_cost / N_tasks, cpu_util
+    # ======================
+    # NORMALIZATION
+    # ======================
+    if E_ref is not None and L_ref is not None:
+        energy_norm = total_energy / E_ref
+        latency_norm = latency / L_ref
+    else:
+        energy_norm = total_energy
+        latency_norm = latency
+
+    # ======================
+    # ✅ FINAL COST
+    # ======================
+    cost = (
+        energy_weight * energy_norm +
+        (1 - energy_weight) * latency_norm
+    )
+
+    return cost, cpu_util

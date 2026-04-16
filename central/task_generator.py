@@ -11,9 +11,9 @@ np.random.seed(TASK_SEED)
 random.seed(TASK_SEED)
 
 # scaling control (biar nggak absurd)
-CPU_RANGE = (0.5, 2.0)
-MEM_RANGE = (0.1, 1.0)
-LATENCY_RANGE = (1e3, 1e4)  # ms
+CPU_RANGE = (1.0, 5.0)
+MEM_RANGE = (0.5, 2.0)
+LATENCY_RANGE = (50, 300)  # ms
 
 # =========================
 # CORE GENERATOR
