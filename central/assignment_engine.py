@@ -1,95 +1,110 @@
 import random
 import numpy as np
-from central.optimizer_runner import hybrid_tabu_diff
+
 from central.local_optimizers import DiffusionLocalOptimizer
+from central.optimizer_runner import hybrid_tabu_diff
 
 
-# =========================
-# RANDOM
-# =========================
 def random_assignment(tasks, nodes):
     node_ids = list(nodes.keys())
-
     assignments = {}
 
     for task in tasks:
-        node = random.choice(node_ids)  # 🔥 uniform random
+        node = random.choice(node_ids)
         assignments[task["task_id"]] = node
 
     return assignments
 
-# =========================
-# GREEDY BASELINE
-# =========================
-def optimized_assignment(tasks, nodes):
 
+def optimized_assignment(tasks, nodes):
     assignments = {}
     node_ids = list(nodes.keys())
-
-    node_load = {nid: 0 for nid in node_ids}
+    node_load = {nid: 0.0 for nid in node_ids}
+    node_mem_load = {nid: 0.0 for nid in node_ids}
 
     for task in tasks:
         best_node = None
         best_score = float("inf")
 
         cpu_demand = task["cpu_demand"]
+        mem_demand = task["memory_demand"]
 
         for node_id in node_ids:
-            node = nodes[node_id]  # ✅ FIX (pakai nodes, bukan NODE_RESOURCES)
+            node = nodes[node_id]
 
-            cpu_cap = node["cpu"]
-            current_load = node_load[node_id]
+            cpu_cap = float(node["cpu"])
+            mem_cap = float(node["mem"])
+            current_cpu = node_load[node_id]
+            current_mem = node_mem_load[node_id]
 
-            cpu_util = current_load / cpu_cap
+            # Hard infeasible check for a single task
+            if mem_demand > mem_cap:
+                continue
 
-            exec_time = cpu_demand * (1 + cpu_util**2) / cpu_cap
+            cpu_util = current_cpu / max(cpu_cap, 1e-6)
+            mem_util = current_mem / max(mem_cap, 1e-6)
 
-            latency = exec_time + node["network_delay"]
-            energy = exec_time * node["power"]
+            service_time = cpu_demand * 0.18 / max(cpu_cap, 1e-6)
+            queue_penalty = max(0.0, cpu_util - 0.8) * 0.5
+            mem_penalty = max(0.0, (current_mem + mem_demand) / max(mem_cap, 1e-6) - 1.0) ** 2
 
-            score = latency + energy
+            idle_power = float(node.get("idle_power_w", 8.0))
+            max_power = float(node.get("max_power_w", 18.0))
+            projected_cpu_util = min((current_cpu + cpu_demand) / max(cpu_cap, 1e-6), 1.5)
+            projected_mem_util = min((current_mem + mem_demand) / max(mem_cap, 1e-6), 1.5)
+
+            power_w = idle_power + (max_power - idle_power) * min(projected_cpu_util, 1.0)
+            power_w += 0.1 * idle_power * min(projected_mem_util, 1.0)
+
+            energy = power_w * service_time
+            latency = service_time + float(node["network_delay"]) + queue_penalty + mem_penalty
+
+            score = latency + 0.02 * energy
 
             if score < best_score:
                 best_score = score
                 best_node = node_id
 
+        if best_node is None:
+            best_node = min(node_ids, key=lambda nid: nodes[nid]["mem"])
+
         assignments[task["task_id"]] = best_node
         node_load[best_node] += cpu_demand
+        node_mem_load[best_node] += mem_demand
 
     return assignments
 
 
-# =========================
-# TABU + DIFFUSION
-# =========================
 def tabu_assignment(tasks, nodes, init_assign=None, local_mode="none", E_ref=None, L_ref=None):
-
     node_ids = list(nodes.keys())
-    N = len(node_ids)
+    n_nodes = len(node_ids)
 
-    cpu_demands = np.array([t["cpu_demand"] for t in tasks])
-    mem_demands = np.array([t["memory_demand"] for t in tasks])
-    cpu_caps = np.array([nodes[n]["cpu"] for n in node_ids])
-    mem_caps = np.array([nodes[n]["mem"] for n in node_ids])
-    latency_ms = np.array([nodes[n]["network_delay"] for n in node_ids])
-    
-    # ✅ PASTIKAN INI ARRAY
-    node_powers = np.array([nodes[n]["power"] for n in node_ids])
-    print(f"DEBUG: node_powers type = {type(node_powers)}, shape = {node_powers.shape}")
-    print(f"DEBUG: node_powers = {node_powers}")
+    cpu_demands = np.array([t["cpu_demand"] for t in tasks], dtype=float)
+    mem_demands = np.array([t["memory_demand"] for t in tasks], dtype=float)
 
-    adjacency = {i: [j for j in range(N) if j != i] for i in range(N)}
-    diffusion = DiffusionLocalOptimizer(adjacency=adjacency, gamma=0.05, max_steps=1, node_powers=node_powers)
+    cpu_caps = np.array([float(nodes[n]["cpu"]) for n in node_ids], dtype=float)
+    mem_caps = np.array([float(nodes[n]["mem"]) for n in node_ids], dtype=float)
+    latency_ms = np.array([float(nodes[n]["network_delay"]) for n in node_ids], dtype=float)
 
-    from central.optimizer_runner import hybrid_tabu_diff
-    
+    idle_powers = np.array([float(nodes[n]["idle_power_w"]) for n in node_ids], dtype=float)
+    max_powers = np.array([float(nodes[n]["max_power_w"]) for n in node_ids], dtype=float)
+
+    adjacency = {i: [j for j in range(n_nodes) if j != i] for i in range(n_nodes)}
+    diffusion = DiffusionLocalOptimizer(
+        adjacency=adjacency,
+        gamma=0.05,
+        max_steps=1,
+        node_powers=max_powers,
+    )
+
     best_assign, history = hybrid_tabu_diff(
         cpu_demands,
         cpu_caps,
         mem_demands,
         mem_caps,
         latency_ms,
-        node_powers,  # ✅ Pass array
+        idle_powers=idle_powers,
+        max_powers=max_powers,
         init_assign=init_assign,
         TABU_MAX_ITER=300,
         TABU_TENURE=30,
@@ -97,7 +112,8 @@ def tabu_assignment(tasks, nodes, init_assign=None, local_mode="none", E_ref=Non
         diffusion=diffusion,
         E_ref=E_ref,
         L_ref=L_ref,
-        energy_weight=0.95
+        energy_weight=0.6,
+        high_power_penalty_weight=0.35,
     )
 
     if local_mode == "diffusion":

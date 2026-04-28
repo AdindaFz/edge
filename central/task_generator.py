@@ -1,73 +1,78 @@
-import numpy as np
 import random
 import uuid
+import numpy as np
+import time
 from datetime import datetime
 
-# =========================
-# CONFIG
-# =========================
 TASK_SEED = 42
 np.random.seed(TASK_SEED)
 random.seed(TASK_SEED)
 
-# scaling control (biar nggak absurd)
-CPU_RANGE = (1.0, 5.0)
-MEM_RANGE = (0.5, 2.0)
-LATENCY_RANGE = (50, 300)  # ms
+CPU_TIME_MS_RANGE = (200.0, 900.0)
+MEMORY_MB_RANGE = (128, 768)
 
-# =========================
-# CORE GENERATOR
-# =========================
-
-def generate_task(task_id=None):
-    cpu = np.random.uniform(*CPU_RANGE)
-    mem = np.random.uniform(*MEM_RANGE)
-    latency = np.random.uniform(*LATENCY_RANGE)
-
-    compute_cost = cpu * latency
-
-    task = {
-      "task_id": task_id or str(uuid.uuid4()),
-      "cpu_demand": float(cpu),
-      "memory_demand": float(mem),
-      "compute_cost": float(compute_cost),
-      "arrival_time": 0.0,
-      "task_size": classify_task(compute_cost),
-      "experiment_id": "exp_1"}
-    
-    return task
+CPU_TIME_UNIT_MS = 250.0
+MEMORY_UNIT_BYTES = 1024 ** 3  # 1 GB
 
 
-# =========================
-# BATCH MODE (FOR EXPERIMENT)
-# =========================
+def classify_task(cpu_time_target_ms, memory_bytes):
+    mem_gb = memory_bytes / (1024 ** 3)
+
+    if cpu_time_target_ms < 350 and mem_gb < 0.25:
+        return "small"
+    elif cpu_time_target_ms < 650 and mem_gb < 0.75:
+        return "medium"
+    return "large"
+
+
+def generate_task(task_id=None, seed=None):
+    if seed is None:
+        seed = random.randint(0, 1_000_000)
+
+    cpu_time_target_ms = float(np.random.uniform(*CPU_TIME_MS_RANGE))
+    memory_mb = int(np.random.uniform(*MEMORY_MB_RANGE))
+    memory_bytes = memory_mb * 1024 * 1024
+
+    # Normalized demand for optimizer
+    cpu_demand = cpu_time_target_ms / CPU_TIME_UNIT_MS
+    memory_demand = memory_bytes / MEMORY_UNIT_BYTES
+
+    compute_cost = cpu_demand * 100.0
+
+    return {
+        "task_id": task_id or str(uuid.uuid4()),
+        "cpu_demand": float(cpu_demand),
+        "memory_demand": float(memory_demand),
+        "compute_cost": float(compute_cost),
+        "task_type": "cpu_mem_burn",
+        "cpu_time_target_ms": float(cpu_time_target_ms),
+        "memory_bytes": int(memory_bytes),
+        "payload": {
+            "seed": int(seed),
+            "touch_rounds": 4,
+        },
+        "arrival_time": 0.0,
+        "task_size": classify_task(cpu_time_target_ms, memory_bytes),
+        "experiment_id": "exp_1",
+    }
+
 
 def generate_batch(n_tasks=50, seed=42):
     np.random.seed(seed)
     random.seed(seed)
-    tasks = []
 
+    tasks = []
     for i in range(n_tasks):
-        task = generate_task(task_id=f"task_{i}")
-        tasks.append(task)
+        task_seed = seed * 10000 + i
+        tasks.append(generate_task(task_id=f"task_{i}", seed=task_seed))
 
     return tasks
 
-# =========================
-# CLASSIFY TASK 
-# =========================
-def classify_task(compute_cost):
-    if compute_cost < 80000:
-        return "small"
-    elif compute_cost < 200000:
-        return "medium"
-    else:
-        return "large"
-# =========================
-# POISSON ARRIVAL MODE
-# =========================
 
-def generate_poisson_tasks(n_tasks=50, lambda_rate=2):
+def generate_poisson_tasks(n_tasks=50, lambda_rate=2, seed=42):
+    np.random.seed(seed)
+    random.seed(seed)
+
     tasks = []
     sim_time = 0.0
 
@@ -75,22 +80,15 @@ def generate_poisson_tasks(n_tasks=50, lambda_rate=2):
         inter_arrival = np.random.exponential(1.0 / lambda_rate)
         sim_time += inter_arrival
 
-        task = generate_task(task_id=f"task_{i}")
+        task_seed = seed * 10000 + i
+        task = generate_task(task_id=f"task_{i}", seed=task_seed)
         task["arrival_time"] = float(sim_time)
-
         tasks.append(task)
 
     return tasks
 
 
-# =========================
-# STREAMING GENERATOR
-# =========================
-
 def task_stream(tasks):
-    """
-    Yield task berdasarkan arrival_time (real-time simulation)
-    """
     start_time = datetime.now().timestamp()
 
     for task in tasks:
