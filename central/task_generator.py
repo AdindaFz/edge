@@ -49,12 +49,66 @@ def generate_task(task_id=None, seed=None):
         "memory_bytes": int(memory_bytes),
         "payload": {
             "seed": int(seed),
-            "touch_rounds": 4,
+            "touch_rounds": 1,
         },
         "arrival_time": 0.0,
         "task_size": classify_task(cpu_time_target_ms, memory_bytes),
         "experiment_id": "exp_1",
     }
+
+
+def build_cpu_mem_burn_task(
+    task_id,
+    cpu_time_target_ms,
+    memory_mb,
+    seed,
+    touch_rounds=1,
+    experiment_id="exp_calibration",
+):
+    memory_bytes = int(memory_mb) * 1024 * 1024
+
+    cpu_demand = float(cpu_time_target_ms) / CPU_TIME_UNIT_MS
+    memory_demand = memory_bytes / MEMORY_UNIT_BYTES
+    compute_cost = cpu_demand * 100.0
+
+    return {
+        "task_id": str(task_id),
+        "cpu_demand": float(cpu_demand),
+        "memory_demand": float(memory_demand),
+        "compute_cost": float(compute_cost),
+        "task_type": "cpu_mem_burn",
+        "cpu_time_target_ms": float(cpu_time_target_ms),
+        "memory_bytes": int(memory_bytes),
+        "payload": {
+            "seed": int(seed),
+            "touch_rounds": int(touch_rounds),
+        },
+        "arrival_time": 0.0,
+        "task_size": classify_task(cpu_time_target_ms, memory_bytes),
+        "experiment_id": experiment_id,
+    }
+
+
+def generate_calibration_tasks(seed=42):
+    presets = [
+        ("light", 150.0, 64),
+        ("medium", 400.0, 128),
+        ("heavy", 800.0, 256),
+    ]
+
+    tasks = []
+    for idx, (label, cpu_time_target_ms, memory_mb) in enumerate(presets):
+        tasks.append(
+            build_cpu_mem_burn_task(
+                task_id=f"cal_{label}",
+                cpu_time_target_ms=cpu_time_target_ms,
+                memory_mb=memory_mb,
+                seed=seed * 10000 + idx,
+                experiment_id="exp_calibration",
+            )
+        )
+
+    return tasks
 
 
 def generate_batch(n_tasks=50, seed=42):

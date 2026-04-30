@@ -113,7 +113,7 @@ def wait_for_result(task_id, node_id, timeout=120):
     raise TimeoutError(f"Timeout waiting result for {task_id} on {node_id}")
 
 
-def run_offline_experiment(tasks, mode="random", E_ref=None, L_ref=None, return_history=False):
+def run_offline_experiment(tasks, mode="random", E_ref=None, L_ref=None, return_history=False, forced_assignments=None):
     results = []
     active_nodes = get_active_nodes_with_resources()
     history = None
@@ -133,7 +133,10 @@ def run_offline_experiment(tasks, mode="random", E_ref=None, L_ref=None, return_
         for t in tasks
     ])
 
-    if mode == "random":
+    if forced_assignments is not None:
+        assignments = forced_assignments
+
+    elif mode == "random":
         assignments = random_assignment(tasks, active_nodes)
 
     elif mode == "tabu":
@@ -184,6 +187,11 @@ def run_offline_experiment(tasks, mode="random", E_ref=None, L_ref=None, return_
                     "observed_task_clock_ms": result_payload.get("observed_task_clock_ms"),
                     "observed_cpu_clock_ms": result_payload.get("observed_cpu_clock_ms"),
                     "observed_memory_bytes": result_payload.get("observed_memory_bytes"),
+                    "psutil_cpu_avg_percent": result_payload.get("psutil_cpu_avg_percent"),
+                    "psutil_cpu_peak_percent": result_payload.get("psutil_cpu_peak_percent"),
+                    "psutil_mem_avg_percent": result_payload.get("psutil_mem_avg_percent"),
+                    "psutil_mem_peak_percent": result_payload.get("psutil_mem_peak_percent"),
+                    "psutil_sample_count": result_payload.get("psutil_sample_count"),
                     "chunks": result_payload.get("chunks"),
                     "output": result_payload.get("output"),
                 }
@@ -227,6 +235,10 @@ def compute_metrics(results, tasks, nodes):
 
     observed_task_clock_samples = []
     observed_memory_samples = []
+    psutil_cpu_avg_samples = []
+    psutil_cpu_peak_samples = []
+    psutil_mem_avg_samples = []
+    psutil_mem_peak_samples = []
 
     for t in tasks:
         task_id = t["task_id"]
@@ -248,6 +260,15 @@ def compute_metrics(results, tasks, nodes):
 
         if r.get("observed_memory_bytes") is not None:
             observed_memory_samples.append(r["observed_memory_bytes"])
+
+        if r.get("psutil_cpu_avg_percent") is not None:
+            psutil_cpu_avg_samples.append(r["psutil_cpu_avg_percent"])
+        if r.get("psutil_cpu_peak_percent") is not None:
+            psutil_cpu_peak_samples.append(r["psutil_cpu_peak_percent"])
+        if r.get("psutil_mem_avg_percent") is not None:
+            psutil_mem_avg_samples.append(r["psutil_mem_avg_percent"])
+        if r.get("psutil_mem_peak_percent") is not None:
+            psutil_mem_peak_samples.append(r["psutil_mem_peak_percent"])
 
     assignments = np.array(assignments)
     cpu_demands = np.array(cpu_demands)
@@ -306,6 +327,10 @@ def compute_metrics(results, tasks, nodes):
         "real_avg_task_clock_ms": float(np.mean(observed_task_clock_samples)) if observed_task_clock_samples else 0.0,
         "real_total_task_clock_ms": float(np.sum(observed_task_clock_samples)) if observed_task_clock_samples else 0.0,
         "real_avg_memory_bytes": float(np.mean(observed_memory_samples)) if observed_memory_samples else 0.0,
+        "real_avg_psutil_cpu_percent": float(np.mean(psutil_cpu_avg_samples)) if psutil_cpu_avg_samples else 0.0,
+        "real_peak_psutil_cpu_percent": float(np.max(psutil_cpu_peak_samples)) if psutil_cpu_peak_samples else 0.0,
+        "real_avg_psutil_mem_percent": float(np.mean(psutil_mem_avg_samples)) if psutil_mem_avg_samples else 0.0,
+        "real_peak_psutil_mem_percent": float(np.max(psutil_mem_peak_samples)) if psutil_mem_peak_samples else 0.0,
         "model_avg_latency": float(avg_latency_model),
         "model_total_energy": float(total_energy_model),
         "distribution": dict(Counter(nodes_used)),
@@ -327,6 +352,10 @@ def print_metrics(metrics):
     print(f"Avg Task Clock (ms)   : {metrics['real_avg_task_clock_ms']:.4f}")
     print(f"Total Task Clock (ms) : {metrics['real_total_task_clock_ms']:.4f}")
     print(f"Avg Memory (bytes)    : {metrics['real_avg_memory_bytes']:.2f}")
+    print(f"Avg psutil CPU (%)    : {metrics['real_avg_psutil_cpu_percent']:.2f}")
+    print(f"Peak psutil CPU (%)   : {metrics['real_peak_psutil_cpu_percent']:.2f}")
+    print(f"Avg psutil Mem (%)    : {metrics['real_avg_psutil_mem_percent']:.2f}")
+    print(f"Peak psutil Mem (%)   : {metrics['real_peak_psutil_mem_percent']:.2f}")
 
     print("\n[MODEL]")
     print(f"Avg Latency           : {metrics['model_avg_latency']:.4f}")

@@ -11,6 +11,7 @@ import time
 import subprocess
 import socket
 import json
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,8 +21,8 @@ from shared.models import Task, TaskResult, NodeStatus
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-NODE_ID = os.getenv("NODE_ID", "edge-9")
-NODE_PORT = int(os.getenv("NODE_PORT", "8009"))
+NODE_ID = os.getenv("NODE_ID", "edge-6")
+NODE_PORT = int(os.getenv("NODE_PORT", "8006"))
 MAX_CONCURRENT_TASKS = 2
 
 app = FastAPI(title=f"Edge Node {NODE_ID}")
@@ -66,6 +67,43 @@ def parse_perf_time_ms(stderr_text, event_name):
     raise RuntimeError(f"Could not parse perf value for {event_name}: {stderr_text}")
 
 
+def run_chunk_timed(memory_bytes, seed, touch_rounds):
+    """Run workload without perf stat - uses time.perf_counter() for timing."""
+    worker_path = os.path.join(os.path.dirname(__file__), "workload_worker.py")
+
+    start = time.perf_counter()
+
+    # Pass NODE_TIER to subprocess
+    env = os.environ.copy()
+    env["NODE_TIER"] = NODE_TIER
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            worker_path,
+            "--memory-bytes",
+            str(memory_bytes),
+            "--seed",
+            str(seed),
+            "--touch-rounds",
+            str(touch_rounds),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+
+    elapsed_s = time.perf_counter() - start
+    elapsed_ms = elapsed_s * 1000
+
+    stdout_text = proc.stdout.strip()
+    worker_output = json.loads(stdout_text) if stdout_text else {}
+
+    # Use elapsed time as both task_clock and cpu_clock
+    return elapsed_ms, elapsed_ms, worker_output
+
+
 def run_perf_chunk(memory_bytes, seed, touch_rounds):
     worker_path = os.path.join(os.path.dirname(__file__), "workload_worker.py")
 
@@ -102,6 +140,21 @@ def run_perf_chunk(memory_bytes, seed, touch_rounds):
     return task_clock_ms, cpu_clock_ms, worker_output
 
 
+def sample_system_metrics(stop_event, interval_s=0.1):
+    samples = []
+
+    while not stop_event.is_set():
+        samples.append(
+            {
+                "cpu_percent": psutil.cpu_percent(interval=None),
+                "memory_percent": psutil.virtual_memory().percent,
+            }
+        )
+        time.sleep(interval_s)
+
+    return samples
+
+
 async def execute_task(task: Task):
     if task.task_type != "cpu_mem_burn":
         raise ValueError(f"Unsupported task_type: {task.task_type}")
@@ -117,6 +170,8 @@ async def execute_task(task: Task):
     last_output = None
 
     started = time.perf_counter()
+    stop_event = threading.Event()
+    metrics_samples = []
 
     append_execution_log(
         task.task_id,
@@ -128,11 +183,18 @@ async def execute_task(task: Task):
         },
     )
 
+    def sampler():
+        nonlocal metrics_samples
+        metrics_samples = sample_system_metrics(stop_event)
+
+    sampler_thread = threading.Thread(target=sampler, daemon=True)
+    sampler_thread.start()
+
     while total_task_clock_ms < target_cpu_ms:
         chunk_seed = base_seed + chunks
 
         task_clock_ms, cpu_clock_ms, worker_output = await asyncio.to_thread(
-            run_perf_chunk,
+            run_chunk_timed,
             memory_bytes,
             chunk_seed,
             touch_rounds,
@@ -143,7 +205,12 @@ async def execute_task(task: Task):
         chunks += 1
         last_output = worker_output
 
+    stop_event.set()
+    sampler_thread.join(timeout=1.0)
+
     execution_time = time.perf_counter() - started
+    cpu_samples = [sample["cpu_percent"] for sample in metrics_samples]
+    mem_samples = [sample["memory_percent"] for sample in metrics_samples]
 
     result_payload = {
         "task_type": task.task_type,
@@ -155,6 +222,11 @@ async def execute_task(task: Task):
         "observed_cpu_clock_ms": float(total_cpu_clock_ms),
         "observed_memory_bytes": int(memory_bytes),
         "chunks": int(chunks),
+        "psutil_cpu_avg_percent": float(sum(cpu_samples) / len(cpu_samples)) if cpu_samples else None,
+        "psutil_cpu_peak_percent": float(max(cpu_samples)) if cpu_samples else None,
+        "psutil_mem_avg_percent": float(sum(mem_samples) / len(mem_samples)) if mem_samples else None,
+        "psutil_mem_peak_percent": float(max(mem_samples)) if mem_samples else None,
+        "psutil_sample_count": int(len(metrics_samples)),
         "output": last_output,
     }
 
