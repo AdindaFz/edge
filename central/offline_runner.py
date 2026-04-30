@@ -4,7 +4,13 @@ import requests
 import time
 
 from config import EDGE_NODES
-from central.assignment_engine import random_assignment, optimized_assignment, tabu_assignment
+from central.assignment_engine import (
+    TABU_ENERGY_WEIGHT,
+    TABU_HIGH_POWER_PENALTY_WEIGHT,
+    random_assignment,
+    optimized_assignment,
+    tabu_assignment,
+)
 from central.node_resources import NODE_RESOURCES
 from central.simulation_model import (
     energy_of_configuration,
@@ -16,21 +22,39 @@ SECONDS_PER_KWH = 3_600_000.0
 
 def estimate_task_energy_joule(task, result_row, node):
     task_clock_ms = result_row.get("observed_task_clock_ms")
+    cpu_clock_ms = result_row.get("observed_cpu_clock_ms")
+
     active_time_s = (
         float(task_clock_ms) / 1000.0
         if task_clock_ms is not None
         else float(result_row.get("execution_time") or 0.0)
     )
+    cpu_active_time_s = (
+        float(cpu_clock_ms) / 1000.0
+        if cpu_clock_ms is not None
+        else active_time_s
+    )
 
     cpu_util = min(float(task["cpu_demand"]) / max(float(node["cpu"]), 1e-6), 1.0)
     mem_util = min(float(task["memory_demand"]) / max(float(node["mem"]), 1e-6), 1.0)
-    effective_util = min(0.8 * cpu_util + 0.2 * mem_util, 1.0)
 
     idle_power = float(node.get("idle_power_w", 5.0 * node.get("power", 1.0)))
     max_power = float(node.get("max_power_w", 12.0 * node.get("power", 1.0)))
-    power_w = idle_power + (max_power - idle_power) * effective_util
+    dynamic_power_span = max(0.0, max_power - idle_power)
 
-    return power_w * active_time_s
+    # Use real observed clocks from perf:
+    # - task_clock tracks wall-clock active runtime seen by the task
+    # - cpu_clock tracks actual CPU time consumed
+    # This keeps energy tied to the real workload instead of only static demand.
+    cpu_dynamic_energy = dynamic_power_span * cpu_util * cpu_active_time_s
+
+    # Memory touches keep some pressure during the task's active lifetime, even
+    # when CPU is not fully saturated, so we keep a lighter wall-time term here.
+    memory_dynamic_energy = 0.15 * dynamic_power_span * mem_util * active_time_s
+
+    idle_energy = idle_power * active_time_s
+
+    return idle_energy + cpu_dynamic_energy + memory_dynamic_energy
 
 
 def get_active_nodes():
@@ -113,7 +137,16 @@ def wait_for_result(task_id, node_id, timeout=120):
     raise TimeoutError(f"Timeout waiting result for {task_id} on {node_id}")
 
 
-def run_offline_experiment(tasks, mode="random", E_ref=None, L_ref=None, return_history=False):
+def run_offline_experiment(
+    tasks,
+    mode="random",
+    E_ref=None,
+    L_ref=None,
+    return_history=False,
+    local_mode="none",
+    tabu_energy_weight=None,
+    tabu_high_power_penalty_weight=None,
+):
     results = []
     active_nodes = get_active_nodes_with_resources()
     history = None
@@ -141,9 +174,19 @@ def run_offline_experiment(tasks, mode="random", E_ref=None, L_ref=None, return_
             tasks,
             active_nodes,
             init_assign=init_assign,
-            local_mode="diffusion",
+            local_mode=local_mode,
             E_ref=E_ref,
             L_ref=L_ref,
+            energy_weight=(
+                tabu_energy_weight
+                if tabu_energy_weight is not None
+                else TABU_ENERGY_WEIGHT
+            ),
+            high_power_penalty_weight=(
+                tabu_high_power_penalty_weight
+                if tabu_high_power_penalty_weight is not None
+                else TABU_HIGH_POWER_PENALTY_WEIGHT
+            ),
         )
 
     else:
@@ -254,6 +297,7 @@ def compute_metrics(results, tasks, nodes):
     mem_demands = np.array(mem_demands)
     cpu_caps = np.array([nodes[n]["cpu"] for n in node_ids])
     mem_caps = np.array([nodes[n]["mem"] for n in node_ids])
+    latency_ms = np.array([nodes[n]["network_delay"] for n in node_ids], dtype=float)
 
     cpu_util = {}
     for n in node_ids:
@@ -288,7 +332,7 @@ def compute_metrics(results, tasks, nodes):
         assignments,
         cpu_demands,
         mem_demands,
-        latency_ms=None,
+        latency_ms=latency_ms,
         cpu_caps=cpu_caps,
         mem_caps=mem_caps,
     )

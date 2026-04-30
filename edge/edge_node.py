@@ -20,8 +20,8 @@ from shared.models import Task, TaskResult, NodeStatus
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-NODE_ID = os.getenv("NODE_ID", "edge-9")
-NODE_PORT = int(os.getenv("NODE_PORT", "8009"))
+NODE_ID = os.getenv("NODE_ID", "edge-6")
+NODE_PORT = int(os.getenv("NODE_PORT", "8006"))
 MAX_CONCURRENT_TASKS = 2
 
 app = FastAPI(title=f"Edge Node {NODE_ID}")

@@ -2,7 +2,16 @@ import random
 import numpy as np
 
 from central.local_optimizers import DiffusionLocalOptimizer
-from central.optimizer_runner import hybrid_tabu_diff
+from central.optimizer_runner import hybrid_tabu_diff, compute_total_cost_energy_focused
+from central.simulation_model import (
+    calibrated_active_time,
+    calibrated_service_time,
+    energy_of_configuration,
+    latency_of_configuration,
+)
+
+TABU_ENERGY_WEIGHT = 0.68
+TABU_HIGH_POWER_PENALTY_WEIGHT = 0.0
 
 
 def random_assignment(tasks, nodes):
@@ -44,8 +53,8 @@ def optimized_assignment(tasks, nodes):
             cpu_util = current_cpu / max(cpu_cap, 1e-6)
             mem_util = current_mem / max(mem_cap, 1e-6)
 
-            service_time = cpu_demand * 0.18 / max(cpu_cap, 1e-6)
-            queue_penalty = max(0.0, cpu_util - 0.8) * 0.5
+            service_time = calibrated_service_time(cpu_demand, cpu_cap)
+            queue_penalty = service_time * max(0.0, ((current_cpu + cpu_demand) / max(cpu_cap, 1e-6)) - 0.8) * 1.35
             mem_penalty = max(0.0, (current_mem + mem_demand) / max(mem_cap, 1e-6) - 1.0) ** 2
 
             idle_power = float(node.get("idle_power_w", 8.0))
@@ -56,10 +65,10 @@ def optimized_assignment(tasks, nodes):
             power_w = idle_power + (max_power - idle_power) * min(projected_cpu_util, 1.0)
             power_w += 0.1 * idle_power * min(projected_mem_util, 1.0)
 
-            energy = power_w * service_time
+            energy = power_w * calibrated_active_time(cpu_demand, cpu_cap)
             latency = service_time + float(node["network_delay"]) + queue_penalty + mem_penalty
 
-            score = latency + 0.02 * energy
+            score = latency + 0.05 * energy
 
             if score < best_score:
                 best_score = score
@@ -75,7 +84,16 @@ def optimized_assignment(tasks, nodes):
     return assignments
 
 
-def tabu_assignment(tasks, nodes, init_assign=None, local_mode="none", E_ref=None, L_ref=None):
+def tabu_assignment(
+    tasks,
+    nodes,
+    init_assign=None,
+    local_mode="none",
+    E_ref=None,
+    L_ref=None,
+    energy_weight=TABU_ENERGY_WEIGHT,
+    high_power_penalty_weight=TABU_HIGH_POWER_PENALTY_WEIGHT,
+):
     node_ids = list(nodes.keys())
     n_nodes = len(node_ids)
 
@@ -92,9 +110,13 @@ def tabu_assignment(tasks, nodes, init_assign=None, local_mode="none", E_ref=Non
     adjacency = {i: [j for j in range(n_nodes) if j != i] for i in range(n_nodes)}
     diffusion = DiffusionLocalOptimizer(
         adjacency=adjacency,
-        gamma=0.05,
+        gamma=0.08,
         max_steps=1,
         node_powers=max_powers,
+        idle_powers=idle_powers,
+        max_powers=max_powers,
+        latency_ms=latency_ms,
+        energy_weight=energy_weight,
     )
 
     best_assign, history = hybrid_tabu_diff(
@@ -109,15 +131,109 @@ def tabu_assignment(tasks, nodes, init_assign=None, local_mode="none", E_ref=Non
         TABU_MAX_ITER=300,
         TABU_TENURE=30,
         NUM_MOVES=70,
-        diffusion=diffusion,
         E_ref=E_ref,
         L_ref=L_ref,
-        energy_weight=0.6,
-        high_power_penalty_weight=0.35,
+        energy_weight=energy_weight,
+        high_power_penalty_weight=high_power_penalty_weight,
     )
 
     if local_mode == "diffusion":
-        best_assign = diffusion.refine(best_assign, cpu_demands, cpu_caps)
+        tabu_cost, _ = compute_total_cost_energy_focused(
+            best_assign,
+            cpu_demands,
+            mem_demands,
+            cpu_caps,
+            mem_caps,
+            latency_ms,
+            idle_powers=idle_powers,
+            max_powers=max_powers,
+            E_ref=E_ref,
+            L_ref=L_ref,
+            energy_weight=energy_weight,
+            high_power_penalty_weight=high_power_penalty_weight,
+        )
+        tabu_energy = energy_of_configuration(
+            best_assign,
+            cpu_demands,
+            mem_demands,
+            cpu_caps,
+            mem_caps,
+            idle_powers=idle_powers,
+            max_powers=max_powers,
+        )
+        tabu_latency, _ = latency_of_configuration(
+            best_assign,
+            cpu_demands,
+            mem_demands,
+            latency_ms,
+            cpu_caps,
+            mem_caps,
+        )
+
+        refined_assign = diffusion.refine(
+            best_assign,
+            cpu_demands,
+            cpu_caps,
+            mem_demands=mem_demands,
+            mem_caps=mem_caps,
+        )
+        refined_cost, _ = compute_total_cost_energy_focused(
+            refined_assign,
+            cpu_demands,
+            mem_demands,
+            cpu_caps,
+            mem_caps,
+            latency_ms,
+            idle_powers=idle_powers,
+            max_powers=max_powers,
+            E_ref=E_ref,
+            L_ref=L_ref,
+            energy_weight=energy_weight,
+            high_power_penalty_weight=high_power_penalty_weight,
+        )
+        refined_energy = energy_of_configuration(
+            refined_assign,
+            cpu_demands,
+            mem_demands,
+            cpu_caps,
+            mem_caps,
+            idle_powers=idle_powers,
+            max_powers=max_powers,
+        )
+        refined_latency, _ = latency_of_configuration(
+            refined_assign,
+            cpu_demands,
+            mem_demands,
+            latency_ms,
+            cpu_caps,
+            mem_caps,
+        )
+
+        should_accept = False
+
+        if refined_cost < tabu_cost:
+            should_accept = True
+        elif np.isclose(refined_cost, tabu_cost, rtol=1e-9, atol=1e-12):
+            if refined_energy < tabu_energy:
+                should_accept = True
+            elif np.isclose(refined_energy, tabu_energy, rtol=1e-9, atol=1e-12) and refined_latency < tabu_latency:
+                should_accept = True
+
+        if should_accept:
+            best_assign = refined_assign
+            print(
+                "[FINAL-DIFF] Accepted | "
+                f"cost={tabu_cost:.4f}->{refined_cost:.4f} "
+                f"energy={tabu_energy:.4f}->{refined_energy:.4f} "
+                f"latency={tabu_latency:.4f}->{refined_latency:.4f}"
+            )
+        else:
+            print(
+                "[FINAL-DIFF] Rejected | "
+                f"cost={tabu_cost:.4f}->{refined_cost:.4f} "
+                f"energy={tabu_energy:.4f}->{refined_energy:.4f} "
+                f"latency={tabu_latency:.4f}->{refined_latency:.4f}"
+            )
 
     assignments = {}
     for i, task in enumerate(tasks):
