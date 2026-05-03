@@ -1,0 +1,10 @@
+time,machine_id,event_type,platform_id,cpu_capacity,memory_capacity,capacity_score,capacity_tier,node_tier,sim_node,idle_power_w,max_power_w,network_delay_s
+0,3337876230,0,70ZOvysYGtB6j9MUHMPzA2Iy7GRzWeJTdX0YCLRKGVg=,0.25,0.2498,0.24988,low,low,0,8.0,18.0,0.035
+0,1391018274,0,70ZOvysYGtB6j9MUHMPzA2Iy7GRzWeJTdX0YCLRKGVg=,0.25,0.2498,0.24988,low,low,1,8.0,18.0,0.04
+0,309375234,0,HofLGzk1Or/8Ildj2+Lqv0UGGvY82NLoni8+J/Yy0RU=,0.5,0.1241,0.27446000000000004,low,low,2,8.0,18.0,0.03
+0,336033773,0,HofLGzk1Or/8Ildj2+Lqv0UGGvY82NLoni8+J/Yy0RU=,0.5,0.2493,0.34958,mid,mid,3,14.0,32.0,0.025
+0,217833831,0,HofLGzk1Or/8Ildj2+Lqv0UGGvY82NLoni8+J/Yy0RU=,0.5,0.2493,0.34958,mid,mid,4,14.0,32.0,0.028
+0,38685424,0,HofLGzk1Or/8Ildj2+Lqv0UGGvY82NLoni8+J/Yy0RU=,0.5,0.2493,0.34958,mid,mid,5,14.0,32.0,0.022
+0,4802518166,0,GtXakjpd0CD41brK7k/27s3Eby3RpJKy7taB9S8UQRA=,1.0,1.0,1.0,high,high,6,24.0,55.0,0.018
+0,4820248458,0,GtXakjpd0CD41brK7k/27s3Eby3RpJKy7taB9S8UQRA=,1.0,1.0,1.0,high,high,7,24.0,55.0,0.02
+0,4820110436,0,GtXakjpd0CD41brK7k/27s3Eby3RpJKy7taB9S8UQRA=,1.0,1.0,1.0,high,high,8,24.0,55.0,0.015

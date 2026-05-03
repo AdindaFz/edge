@@ -1,0 +1,47 @@
+{
+  "task_seed": 42,
+  "n_random_baselines": 5,
+  "summaries": [
+    {
+      "task_count": 100,
+      "random_reference_cost": 25.15700669218931,
+      "raw_obj_start": 19.71777644440146,
+      "raw_obj_end": 17.20209216876114,
+      "normalized_obj_start": 0.7837886552108518,
+      "normalized_obj_end": 0.6837893068614561
+    },
+    {
+      "task_count": 200,
+      "random_reference_cost": 120.73172745258998,
+      "raw_obj_start": 95.37354278374642,
+      "raw_obj_end": 77.25491306409458,
+      "normalized_obj_start": 0.7899625458535624,
+      "normalized_obj_end": 0.6398890721946452
+    },
+    {
+      "task_count": 300,
+      "random_reference_cost": 282.5845056938858,
+      "raw_obj_start": 253.78052757431962,
+      "raw_obj_end": 204.16882254083762,
+      "normalized_obj_start": 0.8980695065044771,
+      "normalized_obj_end": 0.7225053689320348
+    },
+    {
+      "task_count": 400,
+      "random_reference_cost": 517.6811337146836,
+      "raw_obj_start": 589.749468076423,
+      "raw_obj_end": 479.68386708454267,
+      "normalized_obj_start": 1.1392137546999335,
+      "normalized_obj_end": 0.9266010210619674
+    },
+    {
+      "task_count": 500,
+      "random_reference_cost": 797.5545407256844,
+      "raw_obj_start": 890.0299385631151,
+      "raw_obj_end": 720.1173518181563,
+      "normalized_obj_start": 1.1159486820215312,
+      "normalized_obj_end": 0.9029067167781791
+    }
+  ],
+  "combined_plot": "/home/adinda-central/edge-computing-system/outputs/tabu_convergence_combined_normalized.png"
+}

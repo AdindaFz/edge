@@ -7,9 +7,12 @@ from config import EDGE_NODES
 from central.assignment_engine import (
     TABU_ENERGY_WEIGHT,
     TABU_HIGH_POWER_PENALTY_WEIGHT,
+    recommend_tabu_parameters,
     random_assignment,
     optimized_assignment,
     tabu_assignment,
+    tabu_assignment_legacy_objective,
+    tabu_assignment_legacy_hybrid_objective,
 )
 from central.node_resources import NODE_RESOURCES
 from central.simulation_model import (
@@ -146,6 +149,7 @@ def run_offline_experiment(
     local_mode="none",
     tabu_energy_weight=None,
     tabu_high_power_penalty_weight=None,
+    tabu_vps_penalty_scale=None,
 ):
     results = []
     active_nodes = get_active_nodes_with_resources()
@@ -160,9 +164,9 @@ def run_offline_experiment(
 
     node_ids = list(active_nodes.keys())
 
-    assign_random = random_assignment(tasks, active_nodes)
+    assign_seed = optimized_assignment(tasks, active_nodes)
     init_assign = np.array([
-        node_ids.index(assign_random[t["task_id"]])
+        node_ids.index(assign_seed[t["task_id"]])
         for t in tasks
     ])
 
@@ -170,7 +174,31 @@ def run_offline_experiment(
         assignments = random_assignment(tasks, active_nodes)
 
     elif mode == "tabu":
+        recommended = recommend_tabu_parameters(len(tasks))
         assignments, history = tabu_assignment(
+            tasks,
+            active_nodes,
+            init_assign=init_assign,
+            local_mode=(
+                local_mode
+                if local_mode != "none"
+                else recommended["local_mode"]
+            ),
+            E_ref=E_ref,
+            L_ref=L_ref,
+            energy_weight=(
+                tabu_energy_weight
+                if tabu_energy_weight is not None
+                else recommended["energy_weight"]
+            ),
+            high_power_penalty_weight=(
+                tabu_high_power_penalty_weight
+                if tabu_high_power_penalty_weight is not None
+                else recommended["high_power_penalty_weight"]
+            ),
+        )
+    elif mode == "tabu_legacy":
+        assignments, history = tabu_assignment_legacy_objective(
             tasks,
             active_nodes,
             init_assign=init_assign,
@@ -180,12 +208,36 @@ def run_offline_experiment(
             energy_weight=(
                 tabu_energy_weight
                 if tabu_energy_weight is not None
-                else TABU_ENERGY_WEIGHT
+                else 0.5
+            ),
+        )
+    elif mode == "tabu_legacy_hybrid":
+        recommended = recommend_tabu_parameters(len(tasks))
+        assignments, history = tabu_assignment_legacy_hybrid_objective(
+            tasks,
+            active_nodes,
+            init_assign=init_assign,
+            local_mode=(
+                local_mode
+                if local_mode != "none"
+                else recommended["local_mode"]
+            ),
+            E_ref=E_ref,
+            L_ref=L_ref,
+            energy_weight=(
+                tabu_energy_weight
+                if tabu_energy_weight is not None
+                else 0.5
             ),
             high_power_penalty_weight=(
                 tabu_high_power_penalty_weight
                 if tabu_high_power_penalty_weight is not None
-                else TABU_HIGH_POWER_PENALTY_WEIGHT
+                else recommended["high_power_penalty_weight"]
+            ),
+            vps_penalty_scale=(
+                tabu_vps_penalty_scale
+                if tabu_vps_penalty_scale is not None
+                else 0.20
             ),
         )
 

@@ -1,0 +1,35 @@
+{
+  "runs": 1,
+  "models": [
+    "TABU+DIFFUSION"
+  ],
+  "scores": {
+    "TABU+DIFFUSION": [
+      0.3291107764388189
+    ]
+  },
+  "energy_scores": {
+    "TABU+DIFFUSION": [
+      560.9790723854142
+    ]
+  },
+  "latency_scores": {
+    "TABU+DIFFUSION": [
+      1.1339553259130595
+    ]
+  },
+  "summary": [
+    {
+      "model": "TABU+DIFFUSION",
+      "runs": 1,
+      "objective_mean": 0.3291107764388189,
+      "objective_std": 0.0,
+      "objective_min": 0.3291107764388189,
+      "objective_max": 0.3291107764388189,
+      "energy_mean": 560.9790723854142,
+      "latency_mean": 1.1339553259130595,
+      "gap_vs_best_mean": 0.0,
+      "gap_vs_best_pct": 0.0
+    }
+  ]
+}

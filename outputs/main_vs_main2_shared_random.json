@@ -1,0 +1,59 @@
+{
+  "task_seed": 42,
+  "task_counts": [
+    300,
+    400
+  ],
+  "summaries": [
+    {
+      "n_tasks": 300,
+      "random": {
+        "real_avg_latency": 1.749242037932078,
+        "estimated_real_energy_j": 7361.177924220181,
+        "real_avg_execution_time": 0.7841324557038024,
+        "real_total_task_clock_ms": 306436.46872883895
+      },
+      "main": {
+        "real_avg_latency": 1.085428060690562,
+        "estimated_real_energy_j": 7416.403856344513,
+        "real_avg_execution_time": 0.7034156795968496,
+        "real_total_task_clock_ms": 295920.5995151405,
+        "latency_gain_vs_random": 0.6638139772415161,
+        "energy_gain_vs_random_j": -55.22593212433185
+      },
+      "main2": {
+        "real_avg_latency": 2.1778366311391193,
+        "estimated_real_energy_j": 9415.848521761569,
+        "real_avg_execution_time": 0.529201562712163,
+        "real_total_task_clock_ms": 316227.82097198453,
+        "latency_gain_vs_random": -0.4285945932070412,
+        "energy_gain_vs_random_j": -2054.670597541388
+      }
+    },
+    {
+      "n_tasks": 400,
+      "random": {
+        "real_avg_latency": 1.6627196651697158,
+        "estimated_real_energy_j": 9640.698824332958,
+        "real_avg_execution_time": 0.7679524981974101,
+        "real_total_task_clock_ms": 400156.2380317664
+      },
+      "main": {
+        "real_avg_latency": 1.4112734431028366,
+        "estimated_real_energy_j": 9908.603202244505,
+        "real_avg_execution_time": 0.7664138856265345,
+        "real_total_task_clock_ms": 404944.5591119204,
+        "latency_gain_vs_random": 0.25144622206687917,
+        "energy_gain_vs_random_j": -267.9043779115473
+      },
+      "main2": {
+        "real_avg_latency": 2.866839463710785,
+        "estimated_real_energy_j": 12516.935301252845,
+        "real_avg_execution_time": 0.5395986053222441,
+        "real_total_task_clock_ms": 423912.3209567631,
+        "latency_gain_vs_random": -1.2041197985410692,
+        "energy_gain_vs_random_j": -2876.2364769198866
+      }
+    }
+  ]
+}

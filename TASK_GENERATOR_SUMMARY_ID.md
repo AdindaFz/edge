@@ -53,7 +53,8 @@ MEMORY_UNIT_BYTES = 1024 ** 3               # 1 GB = unit memori
 
 ### 1.5 Data-Driven Generation (UPDATE - v2.0)
 
-**PENTING:** Sejak v2.0, Task Generator menggunakan **Data-Driven Generation** dari actual calibration data!
+**PENTING:** Sejak v2.0, Task Generator menggunakan **Data-Driven Generation** dari actual calibration data.
+`cpu_demand` sekarang mengikuti pola workload hasil calibration, bukan lagi sekadar dibentuk dari asumsi teoritis.
 
 ```python
 # File: central/task_generator.py
@@ -62,7 +63,7 @@ USE_DATA_DRIVEN_GENERATION = True  # Flag untuk enable data-driven mode
 
 def load_calibration_data():
     """
-    Load actual task data dari calibration runs (950 tasks)
+    Load actual task data dari calibration runs (~1000 valid records)
     Untuk sampling yang lebih representative terhadap real workload
     """
     # Load dari outputs/calibration/*.jsonl
@@ -84,6 +85,12 @@ def generate_task(task_id=None, seed=None, use_calibration=None):
     """
 ```
 
+**Catatan penting tentang `cpu_demand`:**
+- `cpu_demand` merepresentasikan beban komputasi task dalam satuan ter-normalisasi.
+- `cpu_demand` bukan jumlah core node, dan bukan nilai yang diturunkan dari `cpu_cap` node.
+- `cpu_cap` node tetap dipakai downstream saat simulasi menghitung service time, queue delay, utilisasi, dan energy.
+- Jadi v2 memperjelas pemisahan antara workload demand milik task dan resource capacity milik node.
+
 **Benefit Data-Driven:**
 - ✅ Generated tasks match actual calibration distribution (0.6% error)
 - ✅ Better task size balance (8% small → 76% medium → 16% large)
@@ -103,7 +110,7 @@ def generate_task(task_id=None, seed=None, use_calibration=None):
 ### 2. Fungsi `classify_task()` - Klasifikasi Ukuran Task
 
 ```python
-# File: central/task_generator.py (baris 59-73)
+# File: central/task_generator.py
 
 def classify_task(cpu_time_target_ms, memory_bytes):
     """
@@ -139,14 +146,14 @@ def classify_task(cpu_time_target_ms, memory_bytes):
 ### 3. Fungsi `generate_task()` - Generate Task Individual
 
 ```python
-# File: central/task_generator.py (baris 82-139)
+# File: central/task_generator.py
 
 def generate_task(task_id=None, seed=None, use_calibration=None):
     """
     Generate a task dengan dua mode:
     
     MODE 1: DATA-DRIVEN (default, v2.0+)
-    ├─ Load calibration data dari 950 actual executions
+    ├─ Load calibration data dari ~1000 valid calibration records
     ├─ Select random template
     ├─ Extract cpu_demand & memory_demand
     ├─ Add 5% random variation
@@ -206,6 +213,13 @@ def generate_task(task_id=None, seed=None, use_calibration=None):
         "experiment_id": "exp_1",
     }
 ```
+
+**Makna perubahan v2:**
+- Sebelum v2, `cpu_demand` dibentuk secara sintetis dari `cpu_time_target_ms / 250.0`.
+- Sesudah v2, `cpu_demand` diambil dari `template['cpu_demand']` hasil calibration lalu diberi variasi kecil.
+- Ini berarti sumber nilainya berpindah dari formula teoritis ke observed workload distribution.
+- Perubahan ini sesuai jika tujuan sistem adalah membuat generator workload lebih representatif terhadap hasil eksekusi nyata.
+- Perubahan ini tidak menghilangkan peran jumlah core node; core count tetap digunakan pada model simulasi dan eksekusi node.
 
 **Output Contoh Task (Data-Driven):**
 
@@ -793,7 +807,7 @@ Sistem ini adalah comprehensive framework untuk research edge computing resource
 
 #### 1. New Functions
 ```python
-load_calibration_data()        # Load 950 actual tasks dari calibration runs
+load_calibration_data()        # Load ~1000 valid task records dari calibration runs
 ```
 
 #### 2. Enhanced generate_task()
@@ -854,7 +868,7 @@ task2 = generate_task(use_calibration=False)  # Theoretical
 
 ### Technical Details
 
-- **Calibration Data Source:** `outputs/calibration/workload_calibration_*.jsonl` (950 tasks)
+- **Calibration Data Source:** `outputs/calibration/workload_calibration_*.jsonl` (~1000+ valid records)
 - **Sampling Method:** Random template selection + 5% variation
 - **Caching:** Calibration data cached in memory (loaded once)
 - **Variation Factor:** 5% (configurable in code)
@@ -869,3 +883,108 @@ Data-driven tasks sekarang lebih representative untuk testing optimization algor
 3. **Reliable Results** - Less bias dari task generation
 
 **Recommended:** Re-run optimization experiments setelah update ini untuk validate improvement!
+
+---
+
+## 📌 Catatan Perubahan Lanjutan: Objective Latency-Energy
+
+Setelah evaluasi lanjutan, ditemukan bahwa perbaikan `cpu_demand` pada v2 saja belum cukup untuk menjamin energy turun. Masalah berikutnya ada pada objective optimizer dan model energy yang dipakai saat assignment.
+
+### Perubahan yang Dilakukan
+
+#### 1. Objective Tabu Search Dibalance Ulang
+
+File: `central/assignment_engine.py`
+
+```python
+# Sebelum
+TABU_ENERGY_WEIGHT = 0.68
+
+# Sesudah
+TABU_ENERGY_WEIGHT = 0.50
+```
+
+**Alasan:**
+- Setting lama terlalu berat ke energy model internal
+- Dalam evaluasi offline, setting itu sering membuat latency naik terlalu besar
+- Bobot `0.50` memberi trade-off yang lebih sehat antara energy dan latency
+
+#### 2. Koefisien Model Simulasi Di-update dari Calibration Terbaru
+
+File: `central/simulation_model.py`
+
+```python
+SERVICE_TIME_PER_CPU_DEMAND = {
+    2: 0.32,
+    4: 0.2125,
+    8: 0.1557,
+}
+
+ACTIVE_TIME_PER_CPU_DEMAND = {
+    2: 0.30,
+    4: 0.3230,
+    8: 0.5418,
+}
+```
+
+**Alasan:**
+- Mengikuti calibration dataset terbaru (`1050` rows, `21` source files)
+- Mengurangi drift antara hardcoded coefficients dan observed workload
+
+#### 3. Bentuk Model Energy Diselaraskan
+
+File: `central/simulation_model.py`
+
+Perhitungan energy model dirapikan agar lebih dekat dengan estimator energy di `central/offline_runner.py`:
+
+- `idle_energy` tetap berbasis `active_time`
+- `memory_dynamic_energy` tetap berbasis `active_time`
+- `cpu_dynamic_energy` dipisahkan secara eksplisit lewat helper energy task
+
+**Tujuan:**
+- Menyamakan arah optimisasi model dengan estimator hasil run nyata
+- Mengurangi mismatch antara “optimizer thinks efficient” vs “real estimator says expensive”
+
+### Hasil Validasi Offline
+
+**Catatan:** Ini adalah validasi **offline/model-based**, bukan run `main.py` live, karena node sedang tidak aktif saat tuning dilakukan.
+
+Hasil quick validation setelah perubahan:
+
+```text
+random_avg_energy = 476.36
+tabu_avg_energy   = 392.81
+energy_change     = -17.54%
+
+random_avg_latency = 0.5930
+tabu_avg_latency   = 0.5574
+latency_change     = -6.00%
+```
+
+### Interpretasi
+
+- Dengan setting baru, objective default sekarang lebih mendukung dua target sekaligus:
+  - menurunkan **energy**
+  - menurunkan **latency**
+- Namun hasil ini masih perlu divalidasi ulang lewat run nyata saat node aktif
+
+### Langkah Validasi Berikutnya
+
+Saat node sudah hidup kembali:
+
+1. Jalankan semua edge nodes
+2. Jalankan `main.py`
+3. Bandingkan `Random` vs `Tabu` pada:
+   - `Estimated Energy (J)`
+   - `Avg Latency`
+   - `Avg Execution Time`
+   - distribusi assignment per node
+
+### Kesimpulan Sementara
+
+Perubahan v2 sekarang tidak hanya memperbaiki generator task, tetapi juga:
+- menyeimbangkan objective optimisasi
+- memperbarui koefisien simulasi
+- menyelaraskan model energy dengan estimator hasil run
+
+Validasi final tetap harus dilakukan dengan `main.py` saat nodes aktif.

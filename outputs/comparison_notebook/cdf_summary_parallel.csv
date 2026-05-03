@@ -1,0 +1,2 @@
+model,runs,objective_mean,objective_std,objective_min,objective_max,energy_mean,latency_mean,gap_vs_best_mean,gap_vs_best_pct
+TABU+DIFFUSION,1,0.3291107764388189,0.0,0.3291107764388189,0.3291107764388189,560.9790723854142,1.1339553259130595,0.0,0.0

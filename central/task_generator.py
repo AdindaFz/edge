@@ -18,7 +18,42 @@ MEMORY_UNIT_BYTES = 1024 ** 3  # 1 GB
 
 # Calibration data cache
 _CALIBRATION_CACHE = None
+_CPU_TIME_UNIT_CACHE = None
 USE_DATA_DRIVEN_GENERATION = True  # Flag to enable data-driven generation
+
+CALIBRATION_OUTPUT_DIR = Path(__file__).parent.parent / "outputs" / "calibration"
+CPU_TIME_UNIT_CALIBRATION_PATH = CALIBRATION_OUTPUT_DIR / "cpu_time_unit_calibration.json"
+
+
+def load_cpu_time_unit_ms():
+    """
+    Load calibrated CPU normalization unit when available.
+
+    Falls back to the static default when no calibration file exists.
+    """
+    global _CPU_TIME_UNIT_CACHE
+
+    if _CPU_TIME_UNIT_CACHE is not None:
+        return _CPU_TIME_UNIT_CACHE
+
+    try:
+        if CPU_TIME_UNIT_CALIBRATION_PATH.exists():
+            with CPU_TIME_UNIT_CALIBRATION_PATH.open() as f:
+                payload = json.load(f)
+
+            recommended = payload.get("recommended_cpu_time_unit_ms")
+            if recommended is not None and float(recommended) > 0:
+                _CPU_TIME_UNIT_CACHE = float(recommended)
+                print(
+                    "[INFO] Loaded calibrated CPU_TIME_UNIT_MS="
+                    f"{_CPU_TIME_UNIT_CACHE:.3f} from {CPU_TIME_UNIT_CALIBRATION_PATH}"
+                )
+                return _CPU_TIME_UNIT_CACHE
+    except Exception as e:
+        print(f"[WARN] Failed to load CPU time calibration: {e}")
+
+    _CPU_TIME_UNIT_CACHE = CPU_TIME_UNIT_MS
+    return _CPU_TIME_UNIT_CACHE
 
 
 def load_calibration_data():
@@ -29,7 +64,7 @@ def load_calibration_data():
         return _CALIBRATION_CACHE
 
     try:
-        calibration_dir = Path(__file__).parent.parent / "outputs" / "calibration"
+        calibration_dir = CALIBRATION_OUTPUT_DIR
 
         if not calibration_dir.exists():
             print("[WARN] Calibration data directory not found, using theoretical generation")
@@ -99,6 +134,8 @@ def generate_task(task_id=None, seed=None, use_calibration=None):
         seed: Random seed for reproducibility
         use_calibration: Override to force use/non-use of calibration data
     """
+    cpu_time_unit_ms = load_cpu_time_unit_ms()
+
     if seed is None:
         seed = random.randint(0, 1_000_000)
 
@@ -123,7 +160,7 @@ def generate_task(task_id=None, seed=None, use_calibration=None):
         memory_demand = np.clip(memory_demand, 0.125, 0.75)
 
         # Convert back to time and bytes
-        cpu_time_target_ms = cpu_demand * CPU_TIME_UNIT_MS
+        cpu_time_target_ms = cpu_demand * cpu_time_unit_ms
         memory_bytes = int(memory_demand * MEMORY_UNIT_BYTES)
 
     else:
@@ -133,7 +170,7 @@ def generate_task(task_id=None, seed=None, use_calibration=None):
         memory_bytes = memory_mb * 1024 * 1024
 
         # Normalized demand for optimizer
-        cpu_demand = cpu_time_target_ms / CPU_TIME_UNIT_MS
+        cpu_demand = cpu_time_target_ms / cpu_time_unit_ms
         memory_demand = memory_bytes / MEMORY_UNIT_BYTES
 
     compute_cost = cpu_demand * 100.0

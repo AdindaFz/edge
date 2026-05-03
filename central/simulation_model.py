@@ -7,14 +7,14 @@ from config import MAX_CONCURRENT_TASKS
 # - high tier (`cpu=8`) averages ~0.21s wall time and ~1.9x target task-clock
 SERVICE_TIME_PER_CPU_DEMAND = {
     2: 0.32,
-    4: 0.2114,
+    4: 0.2125,
     8: 0.1557,
 }
 
 ACTIVE_TIME_PER_CPU_DEMAND = {
     2: 0.30,
-    4: 0.3216,
-    8: 0.5407,
+    4: 0.3230,
+    8: 0.5418,
 }
 
 QUEUE_DELAY_MULTIPLIER = {
@@ -48,6 +48,12 @@ def calibrated_active_time(cpu_demand, cpu_cap):
     return float(cpu_demand) * float(coeff)
 
 
+def calibrated_cpu_active_time(cpu_demand, cpu_cap):
+    # Keep CPU-dynamic energy aligned with the real estimator, which uses
+    # actual CPU-active time separately from wall/task active time.
+    return calibrated_active_time(cpu_demand, cpu_cap)
+
+
 def calibrated_queue_delay(cpu_demand, cpu_cap, queue_factor):
     cpu_key = int(round(float(cpu_cap)))
     coeff = QUEUE_DELAY_MULTIPLIER.get(cpu_key, 0.05)
@@ -64,6 +70,73 @@ def calibrated_memory_dynamic_energy(mem_ratio, active_time_s, cpu_cap, dynamic_
     cpu_key = int(round(float(cpu_cap)))
     coeff = MEMORY_DYNAMIC_ENERGY_MULTIPLIER.get(cpu_key, 0.15)
     return float(dynamic_power_span) * float(mem_ratio) * float(active_time_s) * float(coeff)
+
+
+def estimate_task_energy(cpu_demand, mem_demand, cpu_cap, mem_cap, idle_power, max_power):
+    cpu_ratio = min(float(cpu_demand) / max(float(cpu_cap), 1e-6), 1.0)
+    mem_ratio = min(float(mem_demand) / max(float(mem_cap), 1e-6), 1.0)
+    dynamic_power_span = max(0.0, float(max_power) - float(idle_power))
+
+    active_time_s = calibrated_active_time(cpu_demand, cpu_cap)
+    cpu_active_time_s = calibrated_cpu_active_time(cpu_demand, cpu_cap)
+
+    idle_energy = float(idle_power) * active_time_s
+    cpu_dynamic_energy = calibrated_cpu_dynamic_energy(
+        cpu_ratio,
+        cpu_active_time_s,
+        cpu_cap,
+        dynamic_power_span,
+    )
+    memory_dynamic_energy = calibrated_memory_dynamic_energy(
+        mem_ratio,
+        active_time_s,
+        cpu_cap,
+        dynamic_power_span,
+    )
+
+    return idle_energy + cpu_dynamic_energy + memory_dynamic_energy
+
+
+def estimate_task_energy_with_queue(
+    cpu_demand,
+    mem_demand,
+    cpu_cap,
+    mem_cap,
+    idle_power,
+    max_power,
+    queue_factor,
+    mem_util,
+):
+    cpu_ratio = min(float(cpu_demand) / max(float(cpu_cap), 1e-6), 1.0)
+    mem_ratio = min(float(mem_demand) / max(float(mem_cap), 1e-6), 1.0)
+    dynamic_power_span = max(0.0, float(max_power) - float(idle_power))
+
+    service_time_s = calibrated_service_time(cpu_demand, cpu_cap)
+    queue_delay_s = calibrated_queue_delay(cpu_demand, cpu_cap, queue_factor)
+    mem_over = max(0.0, float(mem_util) - 1.0)
+    mem_delay_s = 0.75 * (mem_over ** 2)
+
+    # Match the real estimator more closely:
+    # - idle and memory terms scale with task-clock-like active lifetime
+    # - CPU dynamic term scales with CPU-active time only
+    active_time_s = service_time_s + queue_delay_s + mem_delay_s
+    cpu_active_time_s = calibrated_cpu_active_time(cpu_demand, cpu_cap)
+
+    idle_energy = float(idle_power) * active_time_s
+    cpu_dynamic_energy = calibrated_cpu_dynamic_energy(
+        cpu_ratio,
+        cpu_active_time_s,
+        cpu_cap,
+        dynamic_power_span,
+    )
+    memory_dynamic_energy = calibrated_memory_dynamic_energy(
+        mem_ratio,
+        active_time_s,
+        cpu_cap,
+        dynamic_power_span,
+    )
+
+    return idle_energy + cpu_dynamic_energy + memory_dynamic_energy
 
 
 def energy_of_configuration(
@@ -83,34 +156,30 @@ def energy_of_configuration(
     if max_powers is None:
         max_powers = np.full(N_nodes, 20.0)
 
+    cpu_used = np.zeros(N_nodes)
+    mem_used = np.zeros(N_nodes)
+    task_count = np.zeros(N_nodes, dtype=int)
+
+    for t, node in enumerate(assignments):
+        cpu_used[node] += cpu_demands[t]
+        mem_used[node] += mem_demands[t]
+        task_count[node] += 1
+
+    mem_util = mem_used / np.maximum(mem_caps, 1e-6)
+
     total_energy = 0.0
     for t, node in enumerate(assignments):
-        cpu_ratio = min(float(cpu_demands[t]) / max(float(cpu_caps[node]), 1e-6), 1.0)
-        mem_ratio = min(float(mem_demands[t]) / max(float(mem_caps[node]), 1e-6), 1.0)
-        idle_power = float(idle_powers[node])
-        max_power = float(max_powers[node])
-        dynamic_power_span = max(0.0, max_power - idle_power)
-
-        active_time_s = calibrated_active_time(cpu_demands[t], cpu_caps[node])
-
-        # Keep the model aligned with the "real" estimator structure:
-        # base idle energy over the task's active lifetime, plus lighter
-        # CPU- and memory-driven dynamic components.
-        idle_energy = idle_power * active_time_s
-        cpu_dynamic_energy = calibrated_cpu_dynamic_energy(
-            cpu_ratio,
-            active_time_s,
+        queue_factor = max(0.0, (task_count[node] / MAX_CONCURRENT_TASKS) - 1.0)
+        total_energy += estimate_task_energy_with_queue(
+            cpu_demands[t],
+            mem_demands[t],
             cpu_caps[node],
-            dynamic_power_span,
+            mem_caps[node],
+            idle_powers[node],
+            max_powers[node],
+            queue_factor,
+            mem_util[node],
         )
-        memory_dynamic_energy = calibrated_memory_dynamic_energy(
-            mem_ratio,
-            active_time_s,
-            cpu_caps[node],
-            dynamic_power_span,
-        )
-
-        total_energy += idle_energy + cpu_dynamic_energy + memory_dynamic_energy
 
     return float(total_energy)
 

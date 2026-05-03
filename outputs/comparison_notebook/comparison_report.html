@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Comparison Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #222; }
+    h1, h2 { margin-bottom: 8px; }
+    img { max-width: 100%; height: auto; border: 1px solid #ddd; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 28px; }
+    th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; }
+    th { background: #f5f5f5; }
+    .note { color: #555; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Comparison Notebook Report</h1>
+  <p class="note">Generated from Comparision.ipynb using local VPS datasets.</p>
+
+  <h2>Objective Convergence</h2>
+  <img src="objective_convergence.png" alt="Objective convergence plot">
+
+  <h2>Fastest Runtime</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>model</th>
+      <th>final_obj</th>
+      <th>best_obj</th>
+      <th>runtime_s</th>
+      <th>time_to_target_0_75_s</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PSO+NONE</td>
+      <td>0.665651</td>
+      <td>0.665651</td>
+      <td>6.196705</td>
+      <td>0.409553</td>
+    </tr>
+    <tr>
+      <td>PSO+CPM</td>
+      <td>0.648881</td>
+      <td>0.648881</td>
+      <td>6.771685</td>
+      <td>0.450063</td>
+    </tr>
+    <tr>
+      <td>PSO+DIFFUSION</td>
+      <td>0.623313</td>
+      <td>0.623313</td>
+      <td>8.422758</td>
+      <td>0.134373</td>
+    </tr>
+    <tr>
+      <td>TABU+CPM</td>
+      <td>0.589197</td>
+      <td>0.589197</td>
+      <td>26.601659</td>
+      <td>1.749741</td>
+    </tr>
+    <tr>
+      <td>TABU+NONE</td>
+      <td>0.587872</td>
+      <td>0.587872</td>
+      <td>26.983624</td>
+      <td>2.280383</td>
+    </tr>
+    <tr>
+      <td>TABU+DIFFUSION</td>
+      <td>0.590459</td>
+      <td>0.590459</td>
+      <td>27.848242</td>
+      <td>1.855648</td>
+    </tr>
+    <tr>
+      <td>BFO+NONE</td>
+      <td>0.624232</td>
+      <td>0.624232</td>
+      <td>34.176061</td>
+      <td>5.546313</td>
+    </tr>
+    <tr>
+      <td>BFO+CPM</td>
+      <td>0.690904</td>
+      <td>0.690904</td>
+      <td>36.047701</td>
+      <td>7.931256</td>
+    </tr>
+    <tr>
+      <td>BFO+DIFFUSION</td>
+      <td>0.613994</td>
+      <td>0.613994</td>
+      <td>44.986782</td>
+      <td>2.550212</td>
+    </tr>
+  </tbody>
+</table>
+
+  <h2>Fastest to Objective 0.75</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>model</th>
+      <th>final_obj</th>
+      <th>best_obj</th>
+      <th>runtime_s</th>
+      <th>time_to_target_0_75_s</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>PSO+DIFFUSION</td>
+      <td>0.623313</td>
+      <td>0.623313</td>
+      <td>8.422758</td>
+      <td>0.134373</td>
+    </tr>
+    <tr>
+      <td>PSO+NONE</td>
+      <td>0.665651</td>
+      <td>0.665651</td>
+      <td>6.196705</td>
+      <td>0.409553</td>
+    </tr>
+    <tr>
+      <td>PSO+CPM</td>
+      <td>0.648881</td>
+      <td>0.648881</td>
+      <td>6.771685</td>
+      <td>0.450063</td>
+    </tr>
+    <tr>
+      <td>TABU+CPM</td>
+      <td>0.589197</td>
+      <td>0.589197</td>
+      <td>26.601659</td>
+      <td>1.749741</td>
+    </tr>
+    <tr>
+      <td>TABU+DIFFUSION</td>
+      <td>0.590459</td>
+      <td>0.590459</td>
+      <td>27.848242</td>
+      <td>1.855648</td>
+    </tr>
+    <tr>
+      <td>TABU+NONE</td>
+      <td>0.587872</td>
+      <td>0.587872</td>
+      <td>26.983624</td>
+      <td>2.280383</td>
+    </tr>
+    <tr>
+      <td>BFO+DIFFUSION</td>
+      <td>0.613994</td>
+      <td>0.613994</td>
+      <td>44.986782</td>
+      <td>2.550212</td>
+    </tr>
+    <tr>
+      <td>BFO+NONE</td>
+      <td>0.624232</td>
+      <td>0.624232</td>
+      <td>34.176061</td>
+      <td>5.546313</td>
+    </tr>
+    <tr>
+      <td>BFO+CPM</td>
+      <td>0.690904</td>
+      <td>0.690904</td>
+      <td>36.047701</td>
+      <td>7.931256</td>
+    </tr>
+  </tbody>
+</table>
+
+  <h2>Best Final Objective</h2>
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>model</th>
+      <th>final_obj</th>
+      <th>best_obj</th>
+      <th>runtime_s</th>
+      <th>time_to_target_0_75_s</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>TABU+NONE</td>
+      <td>0.587872</td>
+      <td>0.587872</td>
+      <td>26.983624</td>
+      <td>2.280383</td>
+    </tr>
+    <tr>
+      <td>TABU+CPM</td>
+      <td>0.589197</td>
+      <td>0.589197</td>
+      <td>26.601659</td>
+      <td>1.749741</td>
+    </tr>
+    <tr>
+      <td>TABU+DIFFUSION</td>
+      <td>0.590459</td>
+      <td>0.590459</td>
+      <td>27.848242</td>
+      <td>1.855648</td>
+    </tr>
+    <tr>
+      <td>BFO+DIFFUSION</td>
+      <td>0.613994</td>
+      <td>0.613994</td>
+      <td>44.986782</td>
+      <td>2.550212</td>
+    </tr>
+    <tr>
+      <td>PSO+DIFFUSION</td>
+      <td>0.623313</td>
+      <td>0.623313</td>
+      <td>8.422758</td>
+      <td>0.134373</td>
+    </tr>
+    <tr>
+      <td>BFO+NONE</td>
+      <td>0.624232</td>
+      <td>0.624232</td>
+      <td>34.176061</td>
+      <td>5.546313</td>
+    </tr>
+    <tr>
+      <td>PSO+CPM</td>
+      <td>0.648881</td>
+      <td>0.648881</td>
+      <td>6.771685</td>
+      <td>0.450063</td>
+    </tr>
+    <tr>
+      <td>PSO+NONE</td>
+      <td>0.665651</td>
+      <td>0.665651</td>
+      <td>6.196705</td>
+      <td>0.409553</td>
+    </tr>
+    <tr>
+      <td>BFO+CPM</td>
+      <td>0.690904</td>
+      <td>0.690904</td>
+      <td>36.047701</td>
+      <td>7.931256</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>

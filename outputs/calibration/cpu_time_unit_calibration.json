@@ -1,0 +1,30 @@
+{
+  "method": "Use the median observed task-clock per chunk on the mid tier as the CPU normalization unit for generated tasks.",
+  "reference_tier": "mid",
+  "recommended_cpu_time_unit_ms": 372.235,
+  "per_tier_summary": {
+    "high": {
+      "sample_count": 3925,
+      "avg_chunk_task_clock_ms": 784.570476433121,
+      "median_chunk_task_clock_ms": 742.82,
+      "avg_chunk_cpu_clock_ms": 784.5237757961784,
+      "median_chunk_cpu_clock_ms": 742.78
+    },
+    "low": {
+      "sample_count": 3768,
+      "avg_chunk_task_clock_ms": 571.0127211606512,
+      "median_chunk_task_clock_ms": 555.2975,
+      "avg_chunk_cpu_clock_ms": 570.956646762208,
+      "median_chunk_cpu_clock_ms": 555.2375
+    },
+    "mid": {
+      "sample_count": 4557,
+      "avg_chunk_task_clock_ms": 418.43017311628904,
+      "median_chunk_task_clock_ms": 372.235,
+      "avg_chunk_cpu_clock_ms": 418.403241289795,
+      "median_chunk_cpu_clock_ms": 372.20000000000005
+    }
+  },
+  "source_file_count": 68,
+  "row_count": 12250
+}

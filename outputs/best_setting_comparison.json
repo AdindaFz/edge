@@ -1,0 +1,75 @@
+{
+  "energy_weight": 0.45,
+  "high_power_penalty_weight": 0.18,
+  "task_seed": 42,
+  "local_mode": "hybrid",
+  "summaries": [
+    {
+      "n_tasks": 400,
+      "random_latency": 1.6700546449422837,
+      "tabu_latency": 1.2820374119281768,
+      "latency_gain": 0.38801723301410695,
+      "random_energy_j": 9792.63337200408,
+      "tabu_energy_j": 9913.342039530893,
+      "energy_gain_j": -120.70866752681286,
+      "random_exec_time": 0.7812153261796629,
+      "tabu_exec_time": 0.7555368413060205,
+      "random_task_clock_ms": 406163.4495639679,
+      "tabu_task_clock_ms": 403440.3298409628,
+      "random_metrics": {
+        "real_avg_latency": 1.6700546449422837,
+        "real_total_latency": 668.0218579769135,
+        "real_avg_execution_time": 0.7812153261796629,
+        "real_total_execution_time": 312.4861304718652,
+        "real_min_latency": 0.17853236198425293,
+        "real_max_latency": 7.0724029541015625,
+        "estimated_real_energy_j": 9792.63337200408,
+        "estimated_real_energy_kwh": 0.0027201759366678,
+        "estimated_real_energy_per_task_j": 24.4815834300102,
+        "real_avg_task_clock_ms": 1015.4086239099197,
+        "real_total_task_clock_ms": 406163.4495639679,
+        "real_avg_memory_bytes": 472879655.7175,
+        "model_avg_latency": 32.13470660598694,
+        "model_total_energy": 127281.40600170627,
+        "distribution": {
+          "edge-2": 54,
+          "edge-1": 43,
+          "edge-5": 44,
+          "edge-4": 57,
+          "edge-3": 41,
+          "edge-9": 50,
+          "edge-7": 40,
+          "edge-8": 33,
+          "edge-6": 38
+        }
+      },
+      "tabu_metrics": {
+        "real_avg_latency": 1.2820374119281768,
+        "real_total_latency": 512.8149647712708,
+        "real_avg_execution_time": 0.7555368413060205,
+        "real_total_execution_time": 302.2147365224082,
+        "real_min_latency": 0.16779184341430664,
+        "real_max_latency": 6.639405012130737,
+        "estimated_real_energy_j": 9913.342039530893,
+        "estimated_real_energy_kwh": 0.0027537061220919146,
+        "estimated_real_energy_per_task_j": 24.783355098827233,
+        "real_avg_task_clock_ms": 1008.600824602407,
+        "real_total_task_clock_ms": 403440.3298409628,
+        "real_avg_memory_bytes": 472879655.7175,
+        "model_avg_latency": 12.483416242292565,
+        "model_total_energy": 68028.74901032315,
+        "distribution": {
+          "edge-7": 45,
+          "edge-9": 45,
+          "edge-2": 44,
+          "edge-8": 45,
+          "edge-3": 44,
+          "edge-6": 44,
+          "edge-5": 44,
+          "edge-1": 44,
+          "edge-4": 45
+        }
+      }
+    }
+  ]
+}
