@@ -10,33 +10,33 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
-        
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
         }
-        
+
         h1 {
             color: white;
             margin-bottom: 30px;
             text-align: center;
             font-size: 2.5em;
         }
-        
+
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
-        
+
         .card {
             background: white;
             border-radius: 10px;
@@ -44,11 +44,11 @@
             box-shadow: 0 8px 16px rgba(0,0,0,0.1);
             transition: transform 0.3s ease;
         }
-        
+
         .card:hover {
             transform: translateY(-5px);
         }
-        
+
         .card h2 {
             color: #333;
             margin-bottom: 15px;
@@ -56,7 +56,7 @@
             border-bottom: 2px solid #667eea;
             padding-bottom: 10px;
         }
-        
+
         .metric {
             display: flex;
             justify-content: space-between;
@@ -66,18 +66,18 @@
             background: #f5f5f5;
             border-radius: 5px;
         }
-        
+
         .metric-label {
             font-weight: bold;
             color: #555;
         }
-        
+
         .metric-value {
             font-size: 1.2em;
             font-weight: bold;
             color: #667eea;
         }
-        
+
         .progress-bar {
             width: 100%;
             height: 25px;
@@ -86,7 +86,7 @@
             overflow: hidden;
             margin-top: 5px;
         }
-        
+
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #667eea, #764ba2);
@@ -98,7 +98,7 @@
             font-weight: bold;
             font-size: 0.9em;
         }
-        
+
         .status-badge {
             display: inline-block;
             padding: 5px 12px;
@@ -106,29 +106,29 @@
             font-weight: bold;
             font-size: 0.9em;
         }
-        
+
         .status-healthy {
             background: #4caf50;
             color: white;
         }
-        
+
         .status-warning {
             background: #ff9800;
             color: white;
         }
-        
+
         .status-error {
             background: #f44336;
             color: white;
         }
-        
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 15px;
             margin-top: 15px;
         }
-        
+
         .stat-box {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
@@ -136,25 +136,25 @@
             border-radius: 8px;
             text-align: center;
         }
-        
+
         .stat-box .label {
             font-size: 0.9em;
             opacity: 0.9;
         }
-        
+
         .stat-box .value {
             font-size: 1.8em;
             font-weight: bold;
             margin-top: 5px;
         }
-        
+
         .refresh-info {
             text-align: center;
             color: white;
             margin-top: 20px;
             font-size: 0.9em;
         }
-        
+
         .error-message {
             color: #f44336;
             padding: 10px;
@@ -162,7 +162,7 @@
             border-radius: 5px;
             margin: 10px 0;
         }
-        
+
         .loading {
             text-align: center;
             color: #667eea;
@@ -173,145 +173,192 @@
 <body>
     <div class="container">
         <h1>🖥️ Edge Computing System Dashboard</h1>
-        
+
+        <!-- 🔥 SUMMARY -->
+        <div class="grid">
+            <div class="stat-box">
+                <div class="label">Total Nodes</div>
+                <div class="value" id="total-nodes">-</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Total Tasks</div>
+                <div class="value" id="total-tasks">-</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Avg CPU</div>
+                <div class="value" id="avg-cpu">-</div>
+            </div>
+        </div>
+
         <div id="gateway-card" class="card">
             <h2>Central Gateway</h2>
-            <div id="gateway-content" class="loading">Loading...</div>
+            <div id="gateway-content" class="loading">⏳ Fetching gateway...</div>
         </div>
-        
+
+        <!-- 🔥 DISTRIBUTION -->
+        <div class="card">
+            <h2>📊 Task Distribution</h2>
+            <div id="distribution"></div>
+        </div>
+
+        <!-- 🔥 NODES -->
         <div class="grid" id="nodes-grid">
-            <div class="loading">Loading edge nodes...</div>
+            <div class="loading">⏳ Fetching nodes...</div>
         </div>
-        
+
         <div class="refresh-info">
             <p>Auto-refreshing every 2 seconds...</p>
             <p id="last-update">Last update: Never</p>
         </div>
     </div>
-
+    
     <script>
-        const CENTRAL_IP = "192.168.56.109";
+        const CENTRAL_IP = "10.33.102.106";
         const CENTRAL_PORT = 8000;
         const GATEWAY_URL = `http://${CENTRAL_IP}:${CENTRAL_PORT}`;
 
         async function updateDashboard() {
             try {
-                // Get nodes status
                 const response = await fetch(`${GATEWAY_URL}/nodes/status`);
                 const data = await response.json();
-                
-                // Update gateway
+
                 updateGatewayCard();
-                
-                // Update nodes
                 updateNodesGrid(data.nodes);
-                
-                // Update last update time
+                updateSummary(data.nodes);
+                updateDistribution(data.nodes);
+
                 const now = new Date().toLocaleTimeString();
                 document.getElementById('last-update').textContent = `Last update: ${now}`;
-                
+
             } catch (error) {
-                console.error('Error fetching data:', error);
-                document.getElementById('nodes-grid').innerHTML = 
-                    `<div class="error-message">⚠️ Error: ${error.message}</div>`;
+                console.error(error);
+                document.getElementById('nodes-grid').innerHTML =
+                    `<div class="error-message">⚠️ ${error.message}</div>`;
             }
         }
 
         async function updateGatewayCard() {
             try {
-                const response = await fetch(`${GATEWAY_URL}/health`);
-                const data = await response.json();
-                
-                const html = `
+                const res = await fetch(`${GATEWAY_URL}/health`);
+                const data = await res.json();
+
+                document.getElementById('gateway-content').innerHTML = `
                     <div class="metric">
-                        <span class="metric-label">Status</span>
-                        <span class="status-badge status-healthy">✓ ${data.status.toUpperCase()}</span>
+                        <span>Status</span>
+                        <span class="status-badge status-healthy">✓ ${data.status}</span>
                     </div>
                     <div class="metric">
-                        <span class="metric-label">URL</span>
-                        <span class="metric-value">${GATEWAY_URL}</span>
+                        <span>URL</span>
+                        <span>${GATEWAY_URL}</span>
                     </div>
                 `;
-                document.getElementById('gateway-content').innerHTML = html;
-            } catch (error) {
-                document.getElementById('gateway-content').innerHTML = 
-                    `<div class="error-message">Connection Error</div>`;
+            } catch {
+                document.getElementById('gateway-content').innerHTML =
+                    `<div class="error-message">Gateway Error</div>`;
             }
+        }
+
+        function updateSummary(nodes) {
+            const list = Object.values(nodes);
+
+            const totalNodes = list.length;
+            const totalTasks = list.reduce((s, n) => s + n.tasks_count, 0);
+            const avgCPU = list.reduce((s, n) => s + n.cpu_usage, 0) / totalNodes;
+
+            document.getElementById("total-nodes").textContent = totalNodes;
+            document.getElementById("total-tasks").textContent = totalTasks;
+            document.getElementById("avg-cpu").textContent = avgCPU.toFixed(1) + "%";
+        }
+
+        function updateDistribution(nodes) {
+            let html = "";
+
+            for (const n of Object.values(nodes)) {
+                html += `
+                    <div class="metric">
+                        <span>${n.node_id}</span>
+                        <span>${n.tasks_count} tasks</span>
+                    </div>
+                `;
+            }
+
+            document.getElementById("distribution").innerHTML = html;
         }
 
         function updateNodesGrid(nodes) {
             const grid = document.getElementById('nodes-grid');
             let html = '';
-            
-            if (!nodes || Object.keys(nodes).length === 0) {
-                grid.innerHTML = '<div class="error-message">No nodes available</div>';
-                return;
-            }
-            
-            for (const [nodeId, nodeData] of Object.entries(nodes)) {
-                const statusClass = nodeData.cpu_usage > 80 ? 'status-warning' : 
-                                   nodeData.cpu_usage > 90 ? 'status-error' : 'status-healthy';
-                
-                const cpuPercent = nodeData.cpu_usage.toFixed(1);
-                const memPercent = nodeData.memory_usage.toFixed(1);
-                
+
+            for (const n of Object.values(nodes)) {
+
+                const cpu = n.cpu_usage.toFixed(1);
+                const mem = n.memory_usage.toFixed(1);
+
+                const cpuColor =
+                    n.cpu_usage > 80 ? "#f44336" :
+                    n.cpu_usage > 50 ? "#ff9800" :
+                    "#4caf50";
+
                 html += `
                     <div class="card">
-                        <h2>${nodeData.node_id}</h2>
-                        
+                        <h2>${n.node_id}</h2>
+
                         <div class="metric">
-                            <span class="metric-label">Status</span>
-                            <span class="status-badge ${statusClass}">✓ ${nodeData.status}</span>
+                            <span>Status</span>
+                            <span class="status-badge status-healthy">✓ ${n.status}</span>
                         </div>
-                        
+
                         <div class="metric">
-                            <span class="metric-label">CPU Usage</span>
-                            <span class="metric-value">${cpuPercent}%</span>
+                            <span>CPU</span>
+                            <span>${cpu}%</span>
                         </div>
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${cpuPercent}%">
-                                ${cpuPercent}%
+                            <div class="progress-fill" style="width:${cpu}%; background:${cpuColor}">
+                                ${cpu}%
                             </div>
                         </div>
-                        
-                        <div class="metric" style="margin-top: 15px;">
-                            <span class="metric-label">Memory Usage</span>
-                            <span class="metric-value">${memPercent}%</span>
+
+                        <div class="metric">
+                            <span>Memory</span>
+                            <span>${mem}%</span>
                         </div>
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${memPercent}%">
-                                ${memPercent}%
+                            <div class="progress-fill" style="width:${mem}%">
+                                ${mem}%
                             </div>
                         </div>
-                        
+
                         <div class="stats-grid">
                             <div class="stat-box">
-                                <div class="label">Tasks in Queue</div>
-                                <div class="value">${nodeData.tasks_count}</div>
+                                <div class="label">Queue</div>
+                                <div class="value">${n.tasks_count}</div>
                             </div>
                             <div class="stat-box">
-                                <div class="label">Last Heartbeat</div>
-                                <div class="value">${getTimeAgo(nodeData.last_heartbeat)}</div>
+                                <div class="label">Heartbeat</div>
+                                <div class="value">${getTimeAgo(n.last_heartbeat)}</div>
                             </div>
                         </div>
                     </div>
                 `;
             }
-            
+
             grid.innerHTML = html;
         }
 
         function getTimeAgo(timestamp) {
+            if (!timestamp) return "N/A";
+
+            const then = new Date(timestamp + "Z");
+            if (isNaN(then)) return "invalid";
+
             const now = new Date();
-            const then = new Date(timestamp);
-            const seconds = Math.floor((now - then) / 1000);
-            
-            if (seconds < 60) return `${seconds}s ago`;
-            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-            return `${Math.floor(seconds / 3600)}h ago`;
+            const sec = Math.floor((now - then) / 1000);
+
+            if (sec < 60) return sec + "s ago";
+            if (sec < 3600) return Math.floor(sec / 60) + "m ago";
+            return Math.floor(sec / 3600) + "h ago";
         }
 
-        // Update dashboard setiap 2 detik
         updateDashboard();
         setInterval(updateDashboard, 2000);
     </script>

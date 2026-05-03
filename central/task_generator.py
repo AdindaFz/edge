@@ -11,9 +11,9 @@ np.random.seed(TASK_SEED)
 random.seed(TASK_SEED)
 
 # scaling control (biar nggak absurd)
-CPU_RANGE = (0.05, 0.5)
-MEM_RANGE = (0.1, 1.0)
-LATENCY_RANGE = (1e4, 1e6)  # ms
+CPU_RANGE = (1.0, 5.0)
+MEM_RANGE = (0.5, 2.0)
+LATENCY_RANGE = (50, 300)  # ms
 
 # =========================
 # CORE GENERATOR
@@ -26,21 +26,25 @@ def generate_task(task_id=None):
 
     compute_cost = cpu * latency
 
-    return {
-        "task_id": task_id or str(uuid.uuid4()),
-        "cpu_demand": float(cpu),
-        "memory_demand": float(mem),
-        "compute_cost": float(compute_cost),
-        "arrival_time": 0.0,
-        "created_at": datetime.now().isoformat()
-    }
+    task = {
+      "task_id": task_id or str(uuid.uuid4()),
+      "cpu_demand": float(cpu),
+      "memory_demand": float(mem),
+      "compute_cost": float(compute_cost),
+      "arrival_time": 0.0,
+      "task_size": classify_task(compute_cost),
+      "experiment_id": "exp_1"}
+    
+    return task
 
 
 # =========================
 # BATCH MODE (FOR EXPERIMENT)
 # =========================
 
-def generate_batch(n_tasks=50):
+def generate_batch(n_tasks=50, seed=42):
+    np.random.seed(seed)
+    random.seed(seed)
     tasks = []
 
     for i in range(n_tasks):
@@ -49,7 +53,16 @@ def generate_batch(n_tasks=50):
 
     return tasks
 
-
+# =========================
+# CLASSIFY TASK 
+# =========================
+def classify_task(compute_cost):
+    if compute_cost < 80000:
+        return "small"
+    elif compute_cost < 200000:
+        return "medium"
+    else:
+        return "large"
 # =========================
 # POISSON ARRIVAL MODE
 # =========================
