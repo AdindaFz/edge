@@ -117,7 +117,7 @@ Catatan penting:
 
 ### 4.2 Dataset/Kalibrasi VPS
 
-Fase VPS tidak hanya memakai task acak teoritis. Sistem memakai data-driven task generation dari calibration logs.
+Fase VPS tidak hanya memakai task acak teoritis. Sistem menggunakan data-driven task generation dari calibration logs untuk membentuk karakteristik beban kerja yang lebih mendekati kondisi nyata.
 
 Sumber:
 
@@ -126,19 +126,167 @@ outputs/calibration/workload_calibration_*.jsonl
 outputs/calibration/cpu_time_unit_calibration.json
 ```
 
-Prinsipnya:
+Mekanismenya:
 
-1. Task generator membaca hasil eksekusi sebelumnya.
-2. Generator mengambil pola `cpu_demand` dan `memory_demand` dari calibration logs.
-3. Nilai demand diberi variasi sekitar 5% agar task baru tidak identik.
-4. Demand diterjemahkan menjadi `cpu_time_target_ms` dan `memory_bytes`.
-5. Jika calibration data tidak tersedia, generator fallback ke mode teoritis.
+1. `generate_batch(n_tasks, seed=42)` membuat task batch deterministik berdasarkan seed.
+2. `generate_task(...)` memanggil `load_cpu_time_unit_ms()` untuk membaca satuan CPU terkalibrasi dari `cpu_time_unit_calibration.json`.
+3. Jika calibration logs ditemukan, generator memuat sampel task dari `workload_calibration_*.jsonl` yang memiliki `cpu_demand` dan `memory_demand`.
+4. Nilai demand tersebut diberi variasi acak kecil (~5%) untuk menghindari task identik dan tetap menjaga pola kalibrasi.
+5. Hasilnya dikunci pada rentang valid: `cpu_demand` antara 0.8 dan 3.6, `memory_demand` antara 0.125 dan 0.75.
+6. Nilai demand dikonversi menjadi parameter eksekusi nyata:
+   - `cpu_time_target_ms = cpu_demand * cpu_time_unit_ms`
+   - `memory_bytes = memory_demand * 1 GB`
+7. Jika data kalibrasi tidak tersedia, generator fallback ke mode teoritis dengan `cpu_time_target_ms` seragam di rentang 200-900 ms dan `memory_bytes` seragam di rentang 128-768 MB.
+
+Contoh cuplikan kode dari `central/task_generator.py`:
+
+```python
+cpu_time_unit_ms = load_cpu_time_unit_ms()
+calibration_tasks = load_calibration_data()
+if calibration_tasks:
+    template = calibration_tasks[seed % len(calibration_tasks)]
+    cpu_demand = float(template.get("cpu_demand", 1.0))
+    memory_demand = float(template.get("memory_demand", 0.5))
+    cpu_demand *= np.random.normal(1.0, 0.05)
+    memory_demand *= np.random.normal(1.0, 0.05)
+    cpu_demand = np.clip(cpu_demand, 0.8, 3.6)
+    memory_demand = np.clip(memory_demand, 0.125, 0.75)
+    cpu_time_target_ms = cpu_demand * cpu_time_unit_ms
+    memory_bytes = int(memory_demand * MEMORY_UNIT_BYTES)
+else:
+    cpu_time_target_ms = float(np.random.uniform(*CPU_TIME_MS_RANGE))
+    memory_mb = int(np.random.uniform(*MEMORY_MB_RANGE))
+    memory_bytes = memory_mb * 1024 * 1024
+```
+
+Dalam `main3.py`, batch task tersebut menjadi input untuk baseline random dan optimasi hybrid:
+
+```python
+tasks = generate_batch(N_TASKS)
+for idx in range(N_RANDOM_BASELINES):
+    res_random, _ = run_offline_experiment(tasks, "random", return_history=True)
+    metrics_random = compute_metrics(res_random, tasks, NODE_RESOURCES)
+
+metrics_random = aggregate_metrics(random_metric_runs)
+e_ref = metrics_random["model_total_energy"]
+l_ref = metrics_random["model_avg_latency"]
+res_tabu_legacy_hybrid, _ = run_offline_experiment(
+    tasks,
+    "tabu_legacy_hybrid",
+    E_ref=e_ref,
+    L_ref=l_ref,
+    local_mode=LEGACY_LOCAL_MODE,
+    tabu_energy_weight=LEGACY_ENERGY_WEIGHT,
+)
+```
+
+Setiap task yang dibentuk berisi metadata tambahan yang diperlukan untuk eksekusi VPS:
+
+- `task_id`
+- `cpu_demand`, `memory_demand`
+- `cpu_time_target_ms`, `memory_bytes`
+- `task_type = "cpu_mem_burn"`
+- `payload` dengan `seed` dan `touch_rounds`
+- `arrival_time = 0.0`
+- `task_size` klasifikasi `small/medium/large`
+
+Klasifikasi task menggunakan `classify_task(cpu_time_target_ms, memory_bytes)` dengan batas kalibrasi yang disesuaikan:
+
+- small: `cpu_time_target_ms < 325 ms` dan `memory_bytes < 0.25 GB`
+- medium: `cpu_time_target_ms < 675 ms` dan `memory_bytes < 0.75 GB`
+- large: selain itu
+
+Ini membuat task batch VPS tidak sekadar acak, tetapi masih mempertahankan pembagian ukuran tugas yang mencerminkan distribusi beban kalibrasi.
+
+Dalam alur `main3.py`, batch task ini menjadi input untuk:
+
+- menjalankan beberapa random baseline; lalu rata-ratakan metriknya untuk membentuk `E_ref` dan `L_ref`,
+- menjalankan optimasi `tabu_legacy_hybrid` pada task yang sama,
+- mengirim assignment ke edge nodes, menunggu eksekusi, dan mengumpulkan metrik nyata.
+
+Catatan metodologis penting:
+
+- Fase VPS menekankan validasi eksekusi nyata dengan menganalisis `real_avg_latency`, `real_total_latency`, `real_avg_execution_time`, dan estimasi energi berdasarkan `observed_task_clock_ms` dan `observed_cpu_clock_ms`.
+- `time-to-target` tidak dihitung eksplisit di `main3.py`; pada fase VPS, fokus utama adalah metrik real dan objective hybrid, sementara konvergensi optimasi dicatat dalam sejarah objective `history["obj"]` dan waktu `history["time"]`.
 
 Nilai kalibrasi penting:
 
 ```text
 CPU_TIME_UNIT_MS sekitar 372.235 ms untuk tier referensi mid.
 ```
+
+### 4.3 Komunikasi dan Eksekusi Task antar Node
+
+Alur komunikasi antara central node dan edge node dilakukan melalui HTTP. Central memeriksa kesehatan node dengan endpoint `/health`, lalu mengirim task ke node aktif melalui endpoint `/tasks`.
+
+Contoh cuplikan kode di `central/offline_runner.py`:
+
+```python
+url = f"http://{node['ip']}:{node['port']}/tasks"
+response = requests.post(url, json=task, timeout=10)
+response.raise_for_status()
+```
+
+Setiap edge node menjalankan FastAPI pada port masing-masing. Ketika task diterima, node menyimpan status `queued` dan menempatkan task ke antrean eksekusi.
+
+Edge node kemudian menjalankan workload nyata dengan `perf` menggunakan `edge/workload_worker.py`, mengumpulkan metrik:
+
+- `task-clock`
+- `cpu-clock`
+- `execution_time`
+- `observed_memory_bytes`
+
+Contoh alur eksekusi di `edge/edge_node.py`:
+
+```python
+@app.post("/tasks")
+async def receive_task(task: Task):
+    await app.state.task_queue.put(task)
+    return {"task_id": task.task_id, "status": "queued"}
+```
+
+Setelah task selesai, node memperbarui status menjadi `completed` dan informasi hasil dapat diambil oleh central melalui endpoint `/tasks/{task_id}`.
+
+```python
+@app.get("/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    return task_results[task_id]
+```
+
+### 4.4 Baseline dan Evaluasi pada VPS
+
+Evaluasi VPS dimulai dengan membentuk random baseline. `main3.py` menjalankan `run_offline_experiment(tasks, "random")` beberapa kali, lalu merata-ratakan metrik hasil run tersebut.
+
+Cuplikan kode baseline di `main3.py`:
+
+```python
+random_metric_runs = []
+for idx in range(N_RANDOM_BASELINES):
+    res_random, _ = run_offline_experiment(tasks, "random", return_history=True)
+    metrics_random = compute_metrics(res_random, tasks, NODE_RESOURCES)
+    random_metric_runs.append(metrics_random)
+
+metrics_random = aggregate_metrics(random_metric_runs)
+```
+
+Hasil rata-rata baseline random digunakan sebagai referensi untuk normalisasi objective VPS:
+
+```python
+e_ref = max(metrics_random["model_total_energy"], 1e-6)
+l_ref = max(metrics_random["model_avg_latency"], 1e-6)
+```
+
+Setelah baseline terbentuk, sistem menjalankan optimasi `tabu_legacy_hybrid` pada task batch yang sama. Perbandingan akhir dilakukan dengan menggunakan metrik real dan model yang dihasilkan oleh `compute_metrics`.
+
+Metrik evaluasi VPS mencakup:
+
+- Real metrics: `real_avg_latency`, `real_total_latency`, `real_avg_execution_time`, `real_total_task_clock_ms`, `estimated_real_energy_j`
+- Model metrics: `model_avg_latency`, `model_total_energy`
+- Distribusi task per node
+
+Compare table dibuat dengan `print_all_comparison_table(metrics_random, metrics_tabu_legacy_hybrid, n_tasks=N_TASKS)` untuk melihat perbedaan antara random baseline dan optimized assignment.
+
+Bagian ini penting karena menegaskan bahwa baseline VPS adalah random average, bukan Round-Robin, dan evaluasi dilakukan terhadap metrik eksekusi nyata serta estimasi energi yang dihitung dari hasil perf.
 
 ## 5. Model Sistem Simulasi
 

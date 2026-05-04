@@ -208,6 +208,7 @@ def hybrid_tabu_diff(
                 no_improve_counter += 1
 
         if diffusion_optimizer is not None and no_improve_counter >= stagnation_trigger:
+            print(f"[DIFF-TRIG] Iter {it} | no_improve_counter={no_improve_counter} | current cost={gbest_cost:.6f}")
             diff_assign = diffusion_optimizer.refine(
                 current_assign,
                 cpu_demands,
@@ -228,6 +229,11 @@ def hybrid_tabu_diff(
                 L_ref=L_ref,
                 energy_weight=energy_weight,
                 high_power_penalty_weight=high_power_penalty_weight,
+            )
+            diff_changed = not np.array_equal(diff_assign, current_assign)
+            print(
+                f"[DIFF-STEP] Iter {it} | diff_cost={diff_cost:.6f} | changed={diff_changed} | "
+                f"best_candidate_cost={best_candidate_cost:.6f}"
             )
 
             if diff_cost + 1e-12 < best_candidate_cost:

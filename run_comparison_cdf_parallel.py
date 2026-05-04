@@ -14,6 +14,8 @@ from run_comparison_cdf import (
     save_cdf_plots,
     display,
 )
+from central.optimizer_runner import hybrid_tabu_diff
+from central.simulation_model import energy_of_configuration, latency_of_configuration
 
 
 DEFAULT_CDF_MODELS = ["TABU+DIFFUSION", "TABU+CPM", "TABU+NONE"]
@@ -102,6 +104,48 @@ def bootstrap_cdf_globals(env, cdf_models):
 
     def run_global_optimizer(optimizer_name, system_model_instance, local_optimizer_name):
         local_opt_instance = env["build_local_optimizer"](local_optimizer_name, env["topology"])
+
+        if optimizer_name == "tabu" and local_optimizer_name in {"diffusion", "none"}:
+            best_assign, history = hybrid_tabu_diff(
+                env["cpu_demands"],
+                env["cpu_caps"],
+                env["mem_demands"],
+                env["mem_caps"],
+                env["latency_ms"],
+                idle_powers=env["idle_powers"],
+                max_powers=env["max_powers"],
+                init_assign=None,
+                TABU_MAX_ITER=300,
+                TABU_TENURE=30,
+                NUM_MOVES=70,
+                energy_weight=env["weight_energy"],
+                high_power_penalty_weight=0.0,
+                diffusion_optimizer=local_opt_instance,
+                stagnation_trigger=3,
+            )
+
+            final_energy = energy_of_configuration(
+                best_assign,
+                env["cpu_demands"],
+                env["mem_demands"],
+                env["cpu_caps"],
+                env["mem_caps"],
+                idle_powers=env["idle_powers"],
+                max_powers=env["max_powers"],
+            )
+            final_latency, _ = latency_of_configuration(
+                best_assign,
+                env["cpu_demands"],
+                env["mem_demands"],
+                env["latency_ms"],
+                env["cpu_caps"],
+                env["mem_caps"],
+            )
+
+            history["energy"] = [final_energy] * len(history["obj"])
+            history["latency"] = [final_latency] * len(history["obj"])
+
+            return best_assign, history
 
         if optimizer_name == "tabu":
             return env["hybrid_tabu"](system_model_instance, local_opt_instance)

@@ -97,46 +97,53 @@ def build_summary(results, time_to_target_fn, target=TARGET_OBJECTIVE):
 
 
 def save_convergence_plot(results):
-    fig, axes = plt.subplots(3, 3, figsize=(16, 12))
-    fig.suptitle("Objective Function Convergence History", fontsize=16, fontweight="bold")
+    def _draw(x_key, xlabel, png_name, svg_name, fallback_to_iteration=False):
+        fig, axes = plt.subplots(3, 3, figsize=(16, 12))
+        fig.suptitle(f"Objective Function Convergence History - {xlabel}", fontsize=16, fontweight="bold")
 
-    row_idx = 0
-    col_idx = 0
-    for global_opt in ["tabu", "bfo", "pso"]:
-        for local_opt in ["none", "cpm", "diffusion"]:
-            ax = axes[row_idx, col_idx]
-            if global_opt in results and local_opt in results[global_opt]:
-                history = results[global_opt][local_opt]
-                times = history["time"]
-                objs = history["obj"]
-                ax.plot(times, objs, linewidth=2, color="tab:blue")
-                ax.set_title(f"{global_opt.upper()} + {local_opt.upper()}", fontsize=11, fontweight="bold")
-                ax.set_xlabel("Time (s)")
-                ax.set_ylabel("Objective")
-                ax.grid(True, alpha=0.3)
-                ax.text(
-                    0.98,
-                    0.98,
-                    f"Final: {objs[-1]:.6f}",
-                    transform=ax.transAxes,
-                    ha="right",
-                    va="top",
-                    fontsize=9,
-                    bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
-                )
-            else:
-                ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
-            col_idx += 1
-            if col_idx == 3:
-                col_idx = 0
-                row_idx += 1
+        row_idx = 0
+        col_idx = 0
+        for global_opt in ["tabu", "bfo", "pso"]:
+            for local_opt in ["none", "cpm", "diffusion"]:
+                ax = axes[row_idx, col_idx]
+                if global_opt in results and local_opt in results[global_opt]:
+                    history = results[global_opt][local_opt]
+                    objs = history["obj"]
+                    x_vals = history.get(x_key, [])
+                    if fallback_to_iteration or len(x_vals) != len(objs):
+                        x_vals = list(range(1, len(objs) + 1))
+                    ax.plot(x_vals, objs, linewidth=2, color="tab:blue")
+                    ax.set_title(f"{global_opt.upper()} + {local_opt.upper()}", fontsize=11, fontweight="bold")
+                    ax.set_xlabel(xlabel)
+                    ax.set_ylabel("Objective")
+                    ax.grid(True, alpha=0.3)
+                    ax.text(
+                        0.98,
+                        0.98,
+                        f"Final: {objs[-1]:.6f}",
+                        transform=ax.transAxes,
+                        ha="right",
+                        va="top",
+                        fontsize=9,
+                        bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
+                    )
+                else:
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+                col_idx += 1
+                if col_idx == 3:
+                    col_idx = 0
+                    row_idx += 1
 
-    plt.tight_layout()
-    out = OUTPUT_DIR / "objective_convergence.png"
-    fig.savefig(out, dpi=160, bbox_inches="tight")
-    fig.savefig(OUTPUT_DIR / "objective_convergence.svg", bbox_inches="tight")
-    plt.close(fig)
-    return out
+        plt.tight_layout()
+        png_path = OUTPUT_DIR / png_name
+        fig.savefig(png_path, dpi=160, bbox_inches="tight")
+        fig.savefig(OUTPUT_DIR / svg_name, bbox_inches="tight")
+        plt.close(fig)
+        return png_path
+
+    time_plot = _draw("time", "Time (s)", "objective_convergence.png", "objective_convergence.svg")
+    _draw("iteration", "Iteration", "objective_convergence_iteration.png", "objective_convergence_iteration.svg", fallback_to_iteration=True)
+    return time_plot
 
 
 def save_html_report(summary, plot_path):

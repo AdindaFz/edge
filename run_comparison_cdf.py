@@ -160,6 +160,20 @@ def save_cdf_plots(scores):
         fig.savefig(OUTPUT_DIR / f"cdf_{family.lower()}.png", dpi=160, bbox_inches="tight")
         plt.close(fig)
 
+    for name in sorted_names:
+        x_cdf, y_cdf = compute_cdf(scores[name])
+        single_plot = OUTPUT_DIR / f"cdf_{name.lower().replace('+', '_plus_').replace(' ', '_')}.png"
+        fig = plt.figure(figsize=(8, 5.5))
+        plt.plot(x_cdf, y_cdf, linewidth=2.4, label=f"{name} (mean={np.mean(scores[name]):.6f})")
+        plt.title(f"CDF - {name}")
+        plt.xlabel("Objective Value")
+        plt.ylabel("Cumulative Probability")
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend(loc="lower right")
+        plt.tight_layout()
+        fig.savefig(single_plot, dpi=160, bbox_inches="tight")
+        plt.close(fig)
+
     return all_plot
 
 

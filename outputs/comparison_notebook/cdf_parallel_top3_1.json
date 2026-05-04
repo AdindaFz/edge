@@ -1,35 +1,141 @@
 {
   "runs": 1,
   "models": [
+    "TABU+NONE",
     "TABU+DIFFUSION"
   ],
   "scores": {
+    "TABU+NONE": [
+      8309308.46495752
+    ],
     "TABU+DIFFUSION": [
-      0.3291107764388189
+      8020458.28400492
     ]
   },
   "energy_scores": {
+    "TABU+NONE": [
+      3223.4744257268358
+    ],
     "TABU+DIFFUSION": [
-      560.9790723854142
+      3166.961109823079
     ]
   },
   "latency_scores": {
+    "TABU+NONE": [
+      0.6863477141725688
+    ],
     "TABU+DIFFUSION": [
-      1.1339553259130595
+      0.6786405258650048
     ]
   },
   "summary": [
     {
       "model": "TABU+DIFFUSION",
       "runs": 1,
-      "objective_mean": 0.3291107764388189,
+      "objective_mean": 8020458.28400492,
       "objective_std": 0.0,
-      "objective_min": 0.3291107764388189,
-      "objective_max": 0.3291107764388189,
-      "energy_mean": 560.9790723854142,
-      "latency_mean": 1.1339553259130595,
+      "objective_min": 8020458.28400492,
+      "objective_max": 8020458.28400492,
+      "energy_mean": 3166.961109823079,
+      "latency_mean": 0.6786405258650048,
       "gap_vs_best_mean": 0.0,
       "gap_vs_best_pct": 0.0
+    },
+    {
+      "model": "TABU+NONE",
+      "runs": 1,
+      "objective_mean": 8309308.46495752,
+      "objective_std": 0.0,
+      "objective_min": 8309308.46495752,
+      "objective_max": 8309308.46495752,
+      "energy_mean": 3223.4744257268358,
+      "latency_mean": 0.6863477141725688,
+      "gap_vs_best_mean": 288850.1809526002,
+      "gap_vs_best_pct": 3.6014174093848204
     }
-  ]
+  ],
+  "frozen_instance": {
+    "enabled": true,
+    "task_path": "/home/adinda-central/edge-computing-system/outputs/comparison_notebook/frozen_task_sample.csv",
+    "machine_path": "/home/adinda-central/edge-computing-system/outputs/comparison_notebook/frozen_machine_nodes.csv",
+    "meta_path": "/home/adinda-central/edge-computing-system/outputs/comparison_notebook/frozen_instance_meta.json",
+    "meta": {
+      "source_notebook": "/home/adinda-central/edge-computing-system/Comparision.ipynb",
+      "task_seed": 222,
+      "machine_seed": 111,
+      "optimizer_seed": 333,
+      "max_tasks": 300,
+      "n_tasks": 300,
+      "n_nodes": 9,
+      "node_tiers": [
+        "low",
+        "low",
+        "low",
+        "mid",
+        "mid",
+        "mid",
+        "high",
+        "high",
+        "high"
+      ],
+      "cpu_caps": [
+        0.25,
+        0.25,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mem_caps": [
+        0.2498,
+        0.2498,
+        0.1241,
+        0.2493,
+        0.2493,
+        0.2493,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "idle_powers": [
+        8.0,
+        8.0,
+        8.0,
+        14.0,
+        14.0,
+        14.0,
+        24.0,
+        24.0,
+        24.0
+      ],
+      "max_powers": [
+        18.0,
+        18.0,
+        18.0,
+        32.0,
+        32.0,
+        32.0,
+        55.0,
+        55.0,
+        55.0
+      ],
+      "network_delay_s": [
+        0.035,
+        0.04,
+        0.03,
+        0.025,
+        0.028,
+        0.022,
+        0.018,
+        0.02,
+        0.015
+      ],
+      "task_cpu_sum": 10.2470021,
+      "task_mem_sum": 8.4892544,
+      "fingerprint": "964b63d11b670d30f05abfef6481691484b9f05495991e72444a2a6a69fd24d0"
+    }
+  }
 }
