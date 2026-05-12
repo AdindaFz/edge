@@ -1,8 +1,6 @@
 # central/gateway.py
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 import uvicorn
-import asyncio
 from datetime import datetime
 from typing import Dict
 import httpx
@@ -10,7 +8,6 @@ import logging
 import sys
 import os
 import random
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 # Add current directory to path
@@ -18,7 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import CENTRAL_IP, CENTRAL_PORT, EDGE_NODES
 from shared.models import Task, TaskResult, NodeStatus
-from fastapi.responses import FileResponse, HTMLResponse
 from central.scheduler import select_node
 
 logging.basicConfig(level=logging.INFO)
@@ -31,12 +27,39 @@ tasks_db: Dict[str, TaskResult] = {}
 node_status_db: Dict[str, NodeStatus] = {}
 
 # Scheduler
-SCHEDULER_MODE = "heuristic"   # ganti nanti jadi "heuristic"
+SCHEDULER_MODE = "heuristic"
+
+
+def ordered_node_ids():
+    def node_number(node_id: str):
+        try:
+            return int(node_id.split("-")[-1])
+        except (TypeError, ValueError):
+            return 999
+
+    return sorted(EDGE_NODES.keys(), key=node_number)
+
+
+def task_status_counts():
+    counts = {
+        "total": len(tasks_db),
+        "pending": 0,
+        "queued": 0,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+    }
+
+    for task in tasks_db.values():
+        status = getattr(task, "status", "unknown")
+        counts[status] = counts.get(status, 0) + 1
+
+    return counts
 
 # Serve dashboard HTML
 @app.get("/")
 async def root():
-    dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
+    dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard_v3.html")
     return FileResponse(dashboard_path, media_type="text/html")
 
 @app.on_event("startup")
@@ -55,7 +78,6 @@ async def health_check():
 async def submit_task(task: Task):
     """Submit task dari client ke edge nodes"""
     #task.created_at = datetime.now()
-    print("🔥 MASUK submit_task")
     task_id = task.task_id
     
     # Store task
@@ -64,19 +86,27 @@ async def submit_task(task: Task):
         status="pending",
         result=None
     )
-    print("🔥 MASUK submit_task")
-    
     logger.info(f"📝 Task submitted: {task_id}")
     
     # Distribute ke edge node
     # asyncio.create_task(distribute_task(task))
-    print("🚀 MAU DISTRIBUTE")
     await distribute_task(task)
     return {
         "task_id": task_id,
         "status": "accepted",
         "message": "Task will be processed by edge nodes"
     }
+
+
+@app.get("/tasks")
+async def get_tasks():
+    """Get all task statuses for dashboard polling."""
+    return {
+        "tasks": tasks_db,
+        "counts": task_status_counts(),
+        "timestamp": datetime.now().isoformat(),
+    }
+
 
 @app.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
@@ -89,9 +119,14 @@ async def get_task_status(task_id: str):
 @app.get("/nodes/status")
 async def get_nodes_status():
     """Get status dari semua edge nodes"""
-    logger.info(f"DEBUG nodes_status: {node_status_db}")
+    ordered_nodes = {}
+    for node_id in ordered_node_ids():
+        status = node_status_db.get(node_id)
+        ordered_nodes[node_id] = status
+
     return {
-        "nodes": node_status_db,
+        "nodes": ordered_nodes,
+        "node_order": ordered_node_ids(),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -106,9 +141,8 @@ async def update_node_status(status: NodeStatus):
 @app.post("/results/{task_id}")
 async def submit_result(task_id: str, result: TaskResult):
     """Edge node submit hasil task"""
-    if task_id in tasks_db:
-        tasks_db[task_id] = result
-        logger.info(f"✅ Task completed: {task_id}")
+    tasks_db[task_id] = result
+    logger.info(f"✅ Task updated: {task_id} ({result.status})")
     
     return {"status": "received"}
 
@@ -140,10 +174,24 @@ async def distribute_task(task: Task):
                 timeout=5.0
             )
 
+        tasks_db[task.task_id] = TaskResult(
+            task_id=task.task_id,
+            status="queued",
+            result=None,
+            node_id=node_id,
+        )
         logger.info(f"🎯 Task {task.task_id} → {node_id}")
 
     except Exception as e:
         logger.error(f"❌ Failed to send task to {node_id}: {e}")
+        tasks_db[task.task_id] = TaskResult(
+            task_id=task.task_id,
+            status="failed",
+            result=None,
+            error=str(e),
+            node_id=node_id,
+            completed_at=datetime.now(),
+        )
 
 if __name__ == "__main__":
     uvicorn.run(

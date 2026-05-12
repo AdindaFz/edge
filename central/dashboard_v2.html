@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Computing Dashboard</title>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --panel: #ffffff;
+            --panel-soft: #eef4f8;
+            --text: #18202a;
+            --muted: #657384;
+            --line: #dce5ee;
+            --accent-2: #2f9c95;
+            --good: #14804a;
+            --warn: #a15c00;
+            --bad: #b42318;
+            --shadow: 0 12px 28px rgba(21, 34, 50, 0.08);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            background: var(--bg);
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+        }
+
+        .shell {
+            width: min(1420px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 24px 0 32px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 18px 0 22px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        h1, h2, h3, p { margin: 0; }
+
+        h1 {
+            font-size: clamp(26px, 3vw, 38px);
+            font-weight: 760;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            margin-top: 6px;
+            font-size: 15px;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 32px;
+            padding: 6px 11px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            color: var(--muted);
+            font-weight: 650;
+            white-space: nowrap;
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--muted);
+        }
+
+        .dot.good { background: var(--good); }
+        .dot.warn { background: var(--warn); }
+        .dot.bad { background: var(--bad); }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 12px;
+            margin: 18px 0;
+        }
+
+        .summary-card, .panel, .node-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .summary-card {
+            min-height: 92px;
+            padding: 16px;
+        }
+
+        .summary-label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .summary-value {
+            margin-top: 9px;
+            font-size: 30px;
+            font-weight: 760;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 390px;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .panel { overflow: hidden; }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            background: #fbfdff;
+        }
+
+        .panel-head h2 {
+            font-size: 17px;
+            font-weight: 760;
+        }
+
+        .panel-body { padding: 16px 18px 18px; }
+
+        .node-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .node-card {
+            padding: 14px;
+            min-height: 206px;
+        }
+
+        .node-card.offline {
+            box-shadow: none;
+            background: #f8fafc;
+        }
+
+        .node-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 13px;
+        }
+
+        .node-title h3 {
+            font-size: 17px;
+            font-weight: 760;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 25px;
+            padding: 4px 9px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 760;
+            background: var(--panel-soft);
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .badge.good { color: var(--good); background: #e7f6ed; }
+        .badge.warn { color: var(--warn); background: #fff4df; }
+        .badge.bad { color: var(--bad); background: #fdebea; }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .metric-row strong {
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .bar {
+            height: 9px;
+            margin-top: 7px;
+            background: #e7edf3;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: inherit;
+            background: var(--accent-2);
+            transition: width 220ms ease;
+        }
+
+        .bar-fill.warn { background: #d97706; }
+        .bar-fill.bad { background: #d92d20; }
+
+        .task-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .task-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fbfdff;
+        }
+
+        .task-id {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 760;
+        }
+
+        .task-meta {
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .empty {
+            padding: 24px;
+            color: var(--muted);
+            text-align: center;
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+            background: #fbfdff;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 16px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 1100px) {
+            .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .layout { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 760px) {
+            .shell {
+                width: min(100% - 20px, 1420px);
+                padding-top: 12px;
+            }
+
+            .topbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .summary-grid, .node-grid { grid-template-columns: 1fr; }
+            .summary-card { min-height: 78px; }
+            .footer { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <header class="topbar">
+            <div>
+                <h1>Edge Computing Dashboard</h1>
+                <p class="subtitle">Central gateway, node health, queue pressure, and task execution status.</p>
+            </div>
+            <div class="status-pill" id="gateway-status">
+                <span class="dot warn"></span>
+                Connecting
+            </div>
+        </header>
+
+        <section class="summary-grid" aria-label="System summary">
+            <div class="summary-card">
+                <div class="summary-label">Online Nodes</div>
+                <div class="summary-value" id="online-nodes">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Total Nodes</div>
+                <div class="summary-value" id="total-nodes">9</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Active Tasks</div>
+                <div class="summary-value" id="active-tasks">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Completed</div>
+                <div class="summary-value" id="completed-tasks">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Failed</div>
+                <div class="summary-value" id="failed-tasks">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Avg CPU</div>
+                <div class="summary-value" id="avg-cpu">-</div>
+            </div>
+        </section>
+
+        <section class="layout">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Nodes</h2>
+                    <span class="badge" id="node-refresh">Waiting</span>
+                </div>
+                <div class="panel-body">
+                    <div class="node-grid" id="nodes-grid">
+                        <div class="empty">Loading node status...</div>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="panel">
+                <div class="panel-head">
+                    <h2>Recent Tasks</h2>
+                    <span class="badge" id="task-total">0 total</span>
+                </div>
+                <div class="panel-body">
+                    <div class="task-list" id="task-list">
+                        <div class="empty">No task data yet.</div>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <footer class="footer">
+            <span>Polling every 1.5 seconds</span>
+            <span id="last-update">Last update: never</span>
+        </footer>
+    </main>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const DEFAULT_NODE_ORDER = Array.from({ length: 9 }, (_, index) => `edge-${index + 1}`);
+        const statusRank = { failed: 5, processing: 4, queued: 3, pending: 2, completed: 1 };
+
+        function el(id) {
+            return document.getElementById(id);
+        }
+
+        function numericNodeSort(a, b) {
+            const an = Number(String(a).split("-").pop());
+            const bn = Number(String(b).split("-").pop());
+            return (Number.isFinite(an) ? an : 999) - (Number.isFinite(bn) ? bn : 999);
+        }
+
+        function pct(value) {
+            const number = Number(value || 0);
+            return Math.max(0, Math.min(100, number));
+        }
+
+        function levelClass(value) {
+            if (value >= 80) return "bad";
+            if (value >= 55) return "warn";
+            return "";
+        }
+
+        function parseTime(timestamp) {
+            if (!timestamp) return null;
+            const direct = new Date(timestamp);
+            if (!Number.isNaN(direct.getTime())) return direct;
+            const withUtc = new Date(`${timestamp}Z`);
+            return Number.isNaN(withUtc.getTime()) ? null : withUtc;
+        }
+
+        function timeAgo(timestamp) {
+            const then = parseTime(timestamp);
+            if (!then) return "no heartbeat";
+            const seconds = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+            if (seconds < 3) return "just now";
+            if (seconds < 60) return `${seconds}s ago`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+            return `${Math.floor(seconds / 3600)}h ago`;
+        }
+
+        async function fetchJson(path) {
+            const response = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+            if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+            return response.json();
+        }
+
+        async function updateDashboard() {
+            try {
+                const [health, nodesData, tasksData] = await Promise.all([
+                    fetchJson("/health"),
+                    fetchJson("/nodes/status"),
+                    fetchJson("/tasks"),
+                ]);
+
+                renderGateway(health);
+                renderSummary(nodesData, tasksData);
+                renderNodes(nodesData);
+                renderTasks(tasksData);
+                el("last-update").textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+            } catch (error) {
+                el("gateway-status").innerHTML = `<span class="dot bad"></span>Disconnected`;
+                el("node-refresh").textContent = error.message;
+                el("node-refresh").className = "badge bad";
+            }
+        }
+
+        function renderGateway(health) {
+            const status = health.status === "healthy" ? "Online" : health.status;
+            el("gateway-status").innerHTML = `<span class="dot good"></span>Gateway ${status}`;
+        }
+
+        function renderSummary(nodesData, tasksData) {
+            const nodes = nodesData.nodes || {};
+            const entries = Object.values(nodes).filter(Boolean);
+            const avgCpu = entries.length
+                ? entries.reduce((sum, node) => sum + Number(node.cpu_usage || 0), 0) / entries.length
+                : 0;
+            const counts = tasksData.counts || {};
+
+            el("online-nodes").textContent = entries.length;
+            el("total-nodes").textContent = (nodesData.node_order || DEFAULT_NODE_ORDER).length;
+            el("active-tasks").textContent = (counts.pending || 0) + (counts.queued || 0) + (counts.processing || 0);
+            el("completed-tasks").textContent = counts.completed || 0;
+            el("failed-tasks").textContent = counts.failed || 0;
+            el("avg-cpu").textContent = entries.length ? `${avgCpu.toFixed(1)}%` : "0%";
+        }
+
+        function renderNodes(nodesData) {
+            const nodes = nodesData.nodes || {};
+            const order = (nodesData.node_order && nodesData.node_order.length ? nodesData.node_order : DEFAULT_NODE_ORDER)
+                .slice()
+                .sort(numericNodeSort);
+
+            el("node-refresh").textContent = `${order.length} configured`;
+            el("node-refresh").className = "badge";
+
+            el("nodes-grid").innerHTML = order.map((nodeId) => {
+                const node = nodes[nodeId];
+                if (!node) {
+                    return `
+                        <article class="node-card offline">
+                            <div class="node-title">
+                                <h3>${nodeId}</h3>
+                                <span class="badge bad">Offline</span>
+                            </div>
+                            <div class="metric-row"><span>CPU</span><strong>-</strong></div>
+                            <div class="bar"><div class="bar-fill bad" style="width:0%"></div></div>
+                            <div class="metric-row"><span>Memory</span><strong>-</strong></div>
+                            <div class="bar"><div class="bar-fill bad" style="width:0%"></div></div>
+                            <div class="metric-row"><span>Queue</span><strong>-</strong></div>
+                            <div class="metric-row"><span>Heartbeat</span><strong>not connected</strong></div>
+                        </article>
+                    `;
+                }
+
+                const cpu = pct(node.cpu_usage);
+                const memory = pct(node.memory_usage);
+                const queue = Number(node.tasks_count || 0);
+                const heartbeat = parseTime(node.last_heartbeat);
+                const stale = heartbeat ? (Date.now() - heartbeat.getTime()) > 15000 : true;
+                const badgeClass = stale ? "warn" : "good";
+                const badgeText = stale ? "Stale" : node.status || "healthy";
+
+                return `
+                    <article class="node-card">
+                        <div class="node-title">
+                            <h3>${node.node_id || nodeId}</h3>
+                            <span class="badge ${badgeClass}">${badgeText}</span>
+                        </div>
+                        <div class="metric-row"><span>CPU</span><strong>${cpu.toFixed(1)}%</strong></div>
+                        <div class="bar"><div class="bar-fill ${levelClass(cpu)}" style="width:${cpu}%"></div></div>
+                        <div class="metric-row"><span>Memory</span><strong>${memory.toFixed(1)}%</strong></div>
+                        <div class="bar"><div class="bar-fill ${levelClass(memory)}" style="width:${memory}%"></div></div>
+                        <div class="metric-row"><span>Queue</span><strong>${queue} task${queue === 1 ? "" : "s"}</strong></div>
+                        <div class="metric-row"><span>Heartbeat</span><strong>${timeAgo(node.last_heartbeat)}</strong></div>
+                    </article>
+                `;
+            }).join("");
+        }
+
+        function renderTasks(tasksData) {
+            const tasks = Object.values(tasksData.tasks || {});
+            const sorted = tasks.sort((a, b) => {
+                const rankDiff = (statusRank[b.status] || 0) - (statusRank[a.status] || 0);
+                if (rankDiff) return rankDiff;
+                const at = parseTime(a.completed_at)?.getTime() || 0;
+                const bt = parseTime(b.completed_at)?.getTime() || 0;
+                return bt - at;
+            });
+
+            el("task-total").textContent = `${tasks.length} total`;
+
+            if (!sorted.length) {
+                el("task-list").innerHTML = `<div class="empty">No task data yet.</div>`;
+                return;
+            }
+
+            el("task-list").innerHTML = sorted.slice(0, 12).map((task) => {
+                const status = task.status || "unknown";
+                const badgeClass = status === "completed" ? "good" : status === "failed" ? "bad" : "warn";
+                const node = task.node_id || task.result?.executor_node || "-";
+                const latency = task.result?.latency;
+                const latencyText = Number.isFinite(Number(latency)) ? `${Number(latency).toFixed(3)}s` : "-";
+
+                return `
+                    <div class="task-row">
+                        <div>
+                            <div class="task-id" title="${task.task_id}">${task.task_id}</div>
+                            <div class="task-meta">Node ${node} &middot; Latency ${latencyText}</div>
+                        </div>
+                        <span class="badge ${badgeClass}">${status}</span>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        updateDashboard();
+        setInterval(updateDashboard, 1500);
+    </script>
+</body>
+</html>

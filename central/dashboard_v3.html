@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Computing Dashboard</title>
+    <style>
+        :root {
+            --bg: #050510;
+            --bg-2: #090b18;
+            --panel: rgba(14, 18, 32, 0.92);
+            --panel-2: rgba(20, 25, 44, 0.86);
+            --line: rgba(126, 247, 255, 0.16);
+            --line-strong: rgba(126, 247, 255, 0.34);
+            --text: #eef4ff;
+            --muted: #9ba8bf;
+            --cyan: #00f0ff;
+            --purple: #8d6bff;
+            --green: #30d17d;
+            --amber: #ffb84d;
+            --red: #ff5c73;
+            --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+            --radius: 8px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            background: var(--bg);
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            overflow-x: hidden;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 18% 8%, rgba(0, 240, 255, 0.12), transparent 28%),
+                radial-gradient(circle at 82% 4%, rgba(141, 107, 255, 0.15), transparent 30%),
+                linear-gradient(180deg, var(--bg), var(--bg-2) 48%, #050510);
+            font-family: "Fira Sans", "Segoe UI", Arial, sans-serif;
+        }
+
+        button, input, select, textarea {
+            font: inherit;
+        }
+
+        .shell {
+            width: min(1480px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 22px 0 34px;
+        }
+
+        .topbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 18px;
+            align-items: center;
+            padding: 18px 0 22px;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--cyan);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .eyebrow-line {
+            width: 32px;
+            height: 1px;
+            background: var(--cyan);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.65);
+        }
+
+        h1, h2, h3, p {
+            margin: 0;
+        }
+
+        h1 {
+            margin-top: 8px;
+            font-size: clamp(28px, 3.4vw, 48px);
+            line-height: 1.05;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            max-width: 760px;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.55;
+        }
+
+        .gateway-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 42px;
+            padding: 9px 13px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--muted);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            white-space: nowrap;
+        }
+
+        .pulse {
+            position: relative;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--amber);
+        }
+
+        .pulse.good { background: var(--green); }
+        .pulse.bad { background: var(--red); }
+
+        .pulse.good::after {
+            content: "";
+            position: absolute;
+            inset: -7px;
+            border-radius: inherit;
+            border: 1px solid rgba(48, 209, 125, 0.45);
+            animation: ping 1.8s ease-out infinite;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.035);
+        }
+
+        .toolbar-group {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 32px;
+            padding: 6px 10px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            color: var(--muted);
+            background: rgba(5, 5, 16, 0.42);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .icon {
+            width: 16px;
+            height: 16px;
+            flex: 0 0 16px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .card, .panel, .node-card {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+        }
+
+        .metric-card {
+            min-height: 112px;
+            padding: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--cyan), transparent);
+            opacity: 0.72;
+        }
+
+        .metric-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .metric-value {
+            margin-top: 12px;
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: clamp(25px, 2.5vw, 34px);
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .metric-note {
+            margin-top: 7px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 420px;
+            gap: 14px;
+            align-items: start;
+        }
+
+        .panel {
+            overflow: hidden;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            min-height: 58px;
+            padding: 15px 16px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .panel-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title h2 {
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .panel-body {
+            padding: 14px;
+        }
+
+        .node-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .node-card {
+            min-height: 218px;
+            padding: 14px;
+            background: var(--panel-2);
+            transition: border-color 180ms ease, background-color 180ms ease;
+        }
+
+        .node-card:hover {
+            border-color: var(--line-strong);
+            background: rgba(24, 30, 52, 0.94);
+        }
+
+        .node-card.offline {
+            background: rgba(255, 255, 255, 0.025);
+            box-shadow: none;
+        }
+
+        .node-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .node-id {
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 17px;
+            font-weight: 700;
+        }
+
+        .node-sub {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 26px;
+            padding: 4px 9px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.04);
+            font-size: 12px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        .badge.good {
+            color: var(--green);
+            border-color: rgba(48, 209, 125, 0.3);
+            background: rgba(48, 209, 125, 0.09);
+        }
+
+        .badge.warn {
+            color: var(--amber);
+            border-color: rgba(255, 184, 77, 0.32);
+            background: rgba(255, 184, 77, 0.1);
+        }
+
+        .badge.bad {
+            color: var(--red);
+            border-color: rgba(255, 92, 115, 0.34);
+            background: rgba(255, 92, 115, 0.1);
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .row strong {
+            color: var(--text);
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .bar {
+            height: 9px;
+            margin-top: 7px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--cyan), var(--green));
+            box-shadow: 0 0 14px rgba(0, 240, 255, 0.25);
+            transition: width 240ms ease;
+        }
+
+        .bar-fill.warn {
+            background: linear-gradient(90deg, var(--amber), #ffd27a);
+            box-shadow: 0 0 14px rgba(255, 184, 77, 0.25);
+        }
+
+        .bar-fill.bad {
+            background: linear-gradient(90deg, var(--red), #ff96a5);
+            box-shadow: 0 0 14px rgba(255, 92, 115, 0.24);
+        }
+
+        .topology {
+            display: grid;
+            grid-template-columns: repeat(9, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .topology-node {
+            min-height: 58px;
+            padding: 9px 7px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.035);
+            text-align: center;
+        }
+
+        .topology-node .name {
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .topology-node .load {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .topology-node.online {
+            border-color: rgba(48, 209, 125, 0.35);
+            background: rgba(48, 209, 125, 0.08);
+        }
+
+        .topology-node.stale {
+            border-color: rgba(255, 184, 77, 0.35);
+            background: rgba(255, 184, 77, 0.08);
+        }
+
+        .topology-node.offline {
+            border-color: rgba(255, 92, 115, 0.22);
+            background: rgba(255, 92, 115, 0.055);
+        }
+
+        .side-stack {
+            display: grid;
+            gap: 14px;
+        }
+
+        .distribution-list,
+        .task-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .distribution-row {
+            display: grid;
+            grid-template-columns: 64px minmax(0, 1fr) 54px;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .distribution-row span {
+            color: var(--muted);
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .task-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.035);
+        }
+
+        .task-id {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .task-meta {
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .empty {
+            padding: 24px;
+            border: 1px dashed var(--line);
+            border-radius: var(--radius);
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.025);
+            text-align: center;
+        }
+
+        .skeleton {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .skeleton::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            transform: translateX(-100%);
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+            animation: shimmer 1.4s infinite;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 16px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @keyframes ping {
+            from { opacity: 0.8; transform: scale(0.65); }
+            to { opacity: 0; transform: scale(1.7); }
+        }
+
+        @keyframes shimmer {
+            100% { transform: translateX(100%); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        @media (max-width: 1180px) {
+            .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .main-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 860px) {
+            .topbar { grid-template-columns: 1fr; }
+            .node-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .topology { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 620px) {
+            .shell {
+                width: min(100% - 20px, 1480px);
+                padding-top: 12px;
+            }
+
+            .summary-grid,
+            .node-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .toolbar,
+            .footer {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .distribution-row {
+                grid-template-columns: 58px minmax(0, 1fr) 44px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <header class="topbar">
+            <div>
+                <div class="eyebrow"><span class="eyebrow-line"></span> Distributed Edge Control Plane</div>
+                <h1>Edge Computing Dashboard</h1>
+                <p class="subtitle">Realtime visibility for gateway health, edge node ordering, queue pressure, resource usage, and task execution state.</p>
+            </div>
+            <div class="gateway-pill" id="gateway-status" aria-live="polite">
+                <span class="pulse"></span>
+                Connecting
+            </div>
+        </header>
+
+        <section class="toolbar" aria-label="Dashboard status">
+            <div class="toolbar-group">
+                <span class="chip">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h4l2-6 4 12 2-6h4"/></svg>
+                    <span id="last-update">Last update: never</span>
+                </span>
+                <span class="chip">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>
+                    Polling 1.5s
+                </span>
+            </div>
+            <div class="toolbar-group">
+                <span class="chip" id="node-refresh">Nodes loading</span>
+                <span class="chip" id="task-total">0 tasks</span>
+            </div>
+        </section>
+
+        <section class="summary-grid" aria-label="System metrics">
+            <article class="card metric-card">
+                <div class="metric-label">Online Nodes <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5h14"/><path d="M7 8h10"/><path d="M9 16h6"/></svg></div>
+                <div class="metric-value" id="online-nodes">-</div>
+                <div class="metric-note">Healthy heartbeat window</div>
+            </article>
+            <article class="card metric-card">
+                <div class="metric-label">Configured <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg></div>
+                <div class="metric-value" id="total-nodes">9</div>
+                <div class="metric-note">edge-1 to edge-9</div>
+            </article>
+            <article class="card metric-card">
+                <div class="metric-label">Active Tasks <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></div>
+                <div class="metric-value" id="active-tasks">-</div>
+                <div class="metric-note">Pending, queued, processing</div>
+            </article>
+            <article class="card metric-card">
+                <div class="metric-label">Completed <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
+                <div class="metric-value" id="completed-tasks">-</div>
+                <div class="metric-note">Finished task results</div>
+            </article>
+            <article class="card metric-card">
+                <div class="metric-label">Failed <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m18 6-12 12"/><path d="m6 6 12 12"/></svg></div>
+                <div class="metric-value" id="failed-tasks">-</div>
+                <div class="metric-note">Dispatch or execution errors</div>
+            </article>
+            <article class="card metric-card">
+                <div class="metric-label">Avg CPU <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4v6H4z"/><path d="M10 9h4v11h-4z"/><path d="M16 4h4v16h-4z"/></svg></div>
+                <div class="metric-value" id="avg-cpu">-</div>
+                <div class="metric-note">Across connected nodes</div>
+            </article>
+        </section>
+
+        <section class="topology" id="topology" aria-label="Node topology">
+            <div class="topology-node skeleton"><div class="name">edge-1</div><div class="load">loading</div></div>
+        </section>
+
+        <section class="main-grid">
+            <section class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 8h.01"/><path d="M8 18h.01"/></svg>
+                        <h2>Node Fleet</h2>
+                    </div>
+                    <span class="badge" id="fleet-badge">Waiting</span>
+                </div>
+                <div class="panel-body">
+                    <div class="node-grid" id="nodes-grid">
+                        <div class="empty skeleton">Loading node status...</div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="side-stack">
+                <section class="panel">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-3"/></svg>
+                            <h2>Queue Distribution</h2>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="distribution-list" id="distribution-list">
+                            <div class="empty skeleton">Loading distribution...</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                            <h2>Recent Tasks</h2>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="task-list" id="task-list">
+                            <div class="empty skeleton">Loading task stream...</div>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </section>
+
+        <footer class="footer">
+            <span>Node cards are rendered in fixed numeric order from edge-1 through edge-9.</span>
+            <span id="api-note">API: current origin</span>
+        </footer>
+    </main>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const DEFAULT_NODE_ORDER = Array.from({ length: 9 }, (_, index) => `edge-${index + 1}`);
+        const statusRank = { failed: 5, processing: 4, queued: 3, pending: 2, completed: 1 };
+
+        document.getElementById("api-note").textContent = `API: ${API_BASE}`;
+
+        function el(id) {
+            return document.getElementById(id);
+        }
+
+        function sortNodes(a, b) {
+            const an = Number(String(a).split("-").pop());
+            const bn = Number(String(b).split("-").pop());
+            return (Number.isFinite(an) ? an : 999) - (Number.isFinite(bn) ? bn : 999);
+        }
+
+        function clampPercent(value) {
+            const number = Number(value || 0);
+            return Math.max(0, Math.min(100, number));
+        }
+
+        function level(value) {
+            if (value >= 80) return "bad";
+            if (value >= 55) return "warn";
+            return "";
+        }
+
+        function parseTime(timestamp) {
+            if (!timestamp) return null;
+            const direct = new Date(timestamp);
+            if (!Number.isNaN(direct.getTime())) return direct;
+            const withUtc = new Date(`${timestamp}Z`);
+            return Number.isNaN(withUtc.getTime()) ? null : withUtc;
+        }
+
+        function timeAgo(timestamp) {
+            const then = parseTime(timestamp);
+            if (!then) return "no heartbeat";
+            const seconds = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+            if (seconds < 3) return "just now";
+            if (seconds < 60) return `${seconds}s ago`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+            return `${Math.floor(seconds / 3600)}h ago`;
+        }
+
+        function isStale(node) {
+            const heartbeat = parseTime(node?.last_heartbeat);
+            return heartbeat ? (Date.now() - heartbeat.getTime()) > 15000 : true;
+        }
+
+        async function fetchJson(path) {
+            const response = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+            if (!response.ok) throw new Error(`${path} returned ${response.status}`);
+            return response.json();
+        }
+
+        async function updateDashboard() {
+            try {
+                const [health, nodesData, tasksData] = await Promise.all([
+                    fetchJson("/health"),
+                    fetchJson("/nodes/status"),
+                    fetchJson("/tasks"),
+                ]);
+
+                renderGateway(health);
+                renderSummary(nodesData, tasksData);
+                renderTopology(nodesData);
+                renderNodes(nodesData);
+                renderDistribution(nodesData);
+                renderTasks(tasksData);
+                el("last-update").textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+            } catch (error) {
+                el("gateway-status").innerHTML = `<span class="pulse bad"></span>Disconnected`;
+                el("fleet-badge").textContent = error.message;
+                el("fleet-badge").className = "badge bad";
+            }
+        }
+
+        function nodeOrder(nodesData) {
+            return (nodesData.node_order && nodesData.node_order.length ? nodesData.node_order : DEFAULT_NODE_ORDER)
+                .slice()
+                .sort(sortNodes);
+        }
+
+        function renderGateway(health) {
+            const ok = health.status === "healthy";
+            el("gateway-status").innerHTML = `<span class="pulse ${ok ? "good" : "bad"}"></span>Gateway ${ok ? "Online" : health.status}`;
+        }
+
+        function renderSummary(nodesData, tasksData) {
+            const nodes = nodesData.nodes || {};
+            const entries = Object.values(nodes).filter(Boolean);
+            const fresh = entries.filter((node) => !isStale(node));
+            const avgCpu = fresh.length
+                ? fresh.reduce((sum, node) => sum + Number(node.cpu_usage || 0), 0) / fresh.length
+                : 0;
+            const counts = tasksData.counts || {};
+
+            el("online-nodes").textContent = fresh.length;
+            el("total-nodes").textContent = nodeOrder(nodesData).length;
+            el("active-tasks").textContent = (counts.pending || 0) + (counts.queued || 0) + (counts.processing || 0);
+            el("completed-tasks").textContent = counts.completed || 0;
+            el("failed-tasks").textContent = counts.failed || 0;
+            el("avg-cpu").textContent = fresh.length ? `${avgCpu.toFixed(1)}%` : "0%";
+            el("node-refresh").textContent = `${fresh.length}/${nodeOrder(nodesData).length} online`;
+            el("task-total").textContent = `${counts.total || 0} tasks`;
+        }
+
+        function renderTopology(nodesData) {
+            const nodes = nodesData.nodes || {};
+            el("topology").innerHTML = nodeOrder(nodesData).map((nodeId) => {
+                const node = nodes[nodeId];
+                const state = !node ? "offline" : isStale(node) ? "stale" : "online";
+                const load = node ? `${clampPercent(node.cpu_usage).toFixed(0)}% CPU` : "offline";
+                return `
+                    <div class="topology-node ${state}">
+                        <div class="name">${nodeId}</div>
+                        <div class="load">${load}</div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function renderNodes(nodesData) {
+            const nodes = nodesData.nodes || {};
+            const order = nodeOrder(nodesData);
+            const online = order.filter((nodeId) => nodes[nodeId] && !isStale(nodes[nodeId])).length;
+
+            el("fleet-badge").textContent = `${online}/${order.length} online`;
+            el("fleet-badge").className = online === order.length ? "badge good" : online ? "badge warn" : "badge bad";
+
+            el("nodes-grid").innerHTML = order.map((nodeId) => {
+                const node = nodes[nodeId];
+                if (!node) {
+                    return `
+                        <article class="node-card offline">
+                            <div class="node-head">
+                                <div>
+                                    <div class="node-id">${nodeId}</div>
+                                    <div class="node-sub">No heartbeat received</div>
+                                </div>
+                                <span class="badge bad">Offline</span>
+                            </div>
+                            <div class="row"><span>CPU</span><strong>-</strong></div>
+                            <div class="bar"><div class="bar-fill bad" style="width:0%"></div></div>
+                            <div class="row"><span>Memory</span><strong>-</strong></div>
+                            <div class="bar"><div class="bar-fill bad" style="width:0%"></div></div>
+                            <div class="row"><span>Queue</span><strong>-</strong></div>
+                            <div class="row"><span>Heartbeat</span><strong>not connected</strong></div>
+                        </article>
+                    `;
+                }
+
+                const cpu = clampPercent(node.cpu_usage);
+                const memory = clampPercent(node.memory_usage);
+                const queue = Number(node.tasks_count || 0);
+                const stale = isStale(node);
+                const badgeClass = stale ? "warn" : "good";
+                const badgeText = stale ? "Stale" : node.status || "healthy";
+
+                return `
+                    <article class="node-card">
+                        <div class="node-head">
+                            <div>
+                                <div class="node-id">${node.node_id || nodeId}</div>
+                                <div class="node-sub">Heartbeat ${timeAgo(node.last_heartbeat)}</div>
+                            </div>
+                            <span class="badge ${badgeClass}">${badgeText}</span>
+                        </div>
+                        <div class="row"><span>CPU usage</span><strong>${cpu.toFixed(1)}%</strong></div>
+                        <div class="bar"><div class="bar-fill ${level(cpu)}" style="width:${cpu}%"></div></div>
+                        <div class="row"><span>Memory usage</span><strong>${memory.toFixed(1)}%</strong></div>
+                        <div class="bar"><div class="bar-fill ${level(memory)}" style="width:${memory}%"></div></div>
+                        <div class="row"><span>Queue depth</span><strong>${queue} task${queue === 1 ? "" : "s"}</strong></div>
+                        <div class="row"><span>Node status</span><strong>${node.status || "unknown"}</strong></div>
+                    </article>
+                `;
+            }).join("");
+        }
+
+        function renderDistribution(nodesData) {
+            const nodes = nodesData.nodes || {};
+            const order = nodeOrder(nodesData);
+            const maxQueue = Math.max(1, ...order.map((nodeId) => Number(nodes[nodeId]?.tasks_count || 0)));
+
+            el("distribution-list").innerHTML = order.map((nodeId) => {
+                const queue = Number(nodes[nodeId]?.tasks_count || 0);
+                const width = Math.max(3, (queue / maxQueue) * 100);
+                return `
+                    <div class="distribution-row">
+                        <span>${nodeId}</span>
+                        <div class="bar"><div class="bar-fill" style="width:${width}%"></div></div>
+                        <span>${queue}</span>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function renderTasks(tasksData) {
+            const tasks = Object.values(tasksData.tasks || {});
+            const sorted = tasks.sort((a, b) => {
+                const rankDiff = (statusRank[b.status] || 0) - (statusRank[a.status] || 0);
+                if (rankDiff) return rankDiff;
+                const at = parseTime(a.completed_at)?.getTime() || 0;
+                const bt = parseTime(b.completed_at)?.getTime() || 0;
+                return bt - at;
+            });
+
+            if (!sorted.length) {
+                el("task-list").innerHTML = `<div class="empty">No task data yet.</div>`;
+                return;
+            }
+
+            el("task-list").innerHTML = sorted.slice(0, 12).map((task) => {
+                const status = task.status || "unknown";
+                const badgeClass = status === "completed" ? "good" : status === "failed" ? "bad" : "warn";
+                const node = task.node_id || task.result?.executor_node || "-";
+                const latency = task.result?.latency;
+                const latencyText = Number.isFinite(Number(latency)) ? `${Number(latency).toFixed(3)}s` : "-";
+
+                return `
+                    <div class="task-row">
+                        <div>
+                            <div class="task-id" title="${task.task_id}">${task.task_id}</div>
+                            <div class="task-meta">Node ${node} &middot; Latency ${latencyText}</div>
+                        </div>
+                        <span class="badge ${badgeClass}">${status}</span>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        updateDashboard();
+        setInterval(updateDashboard, 1500);
+    </script>
+</body>
+</html>
