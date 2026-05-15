@@ -59,9 +59,18 @@ def parse_perf_time_ms(stderr_text, event_name):
             continue
 
         try:
-            return float(raw)
+            value = float(raw)
         except ValueError:
             continue
+
+        unit = parts[1].lower() if len(parts) > 1 else "msec"
+        if unit in {"ns", "nsec", "nanosecond", "nanoseconds"}:
+            return value / 1_000_000.0
+        if unit in {"us", "usec", "microsecond", "microseconds"}:
+            return value / 1_000.0
+        if unit in {"s", "sec", "second", "seconds"}:
+            return value * 1_000.0
+        return value
 
     raise RuntimeError(f"Could not parse perf value for {event_name}: {stderr_text}")
 

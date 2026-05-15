@@ -9,14 +9,14 @@ N_TASKS = 25
 N_REPEATS = 3
 TASK_SEEDS = [42, 43, 44]
 ENERGY_WEIGHTS = [0.55, 0.62, 0.68, 0.75]
-HIGH_POWER_PENALTIES = [0.0, 0.08, 0.16]
+RESOURCE_PRESSURE_PENALTIES = [0.0, 0.08, 0.16]
 
 
 def avg_metric(rows, key):
     return mean(row[key] for row in rows)
 
 
-def run_setting(energy_weight, high_power_penalty_weight):
+def run_setting(energy_weight, resource_pressure_penalty_weight):
     rows = []
 
     for seed in TASK_SEEDS[:N_REPEATS]:
@@ -37,7 +37,7 @@ def run_setting(energy_weight, high_power_penalty_weight):
             return_history=True,
             local_mode="none",
             tabu_energy_weight=energy_weight,
-            tabu_high_power_penalty_weight=high_power_penalty_weight,
+            tabu_resource_pressure_penalty_weight=resource_pressure_penalty_weight,
         )
         metrics_tabu = compute_metrics(res_tabu, tasks, NODE_RESOURCES)
 
@@ -55,7 +55,7 @@ def run_setting(energy_weight, high_power_penalty_weight):
 
     return {
         "energy_weight": energy_weight,
-        "high_power_penalty_weight": high_power_penalty_weight,
+        "resource_pressure_penalty_weight": resource_pressure_penalty_weight,
         "avg_random_latency": avg_metric(rows, "random_latency"),
         "avg_random_energy": avg_metric(rows, "random_energy"),
         "avg_tabu_latency": avg_metric(rows, "tabu_latency"),
@@ -70,7 +70,7 @@ def print_summary(summary):
     print(
         "SETTING "
         f"energy_weight={summary['energy_weight']:.2f} "
-        f"high_power_penalty={summary['high_power_penalty_weight']:.2f}"
+        f"resource_pressure_penalty={summary['resource_pressure_penalty_weight']:.2f}"
     )
     print(
         "  AVG random     "
@@ -93,9 +93,9 @@ def main():
     summaries = []
 
     for energy_weight in ENERGY_WEIGHTS:
-        for high_power_penalty_weight in HIGH_POWER_PENALTIES:
+        for resource_pressure_penalty_weight in RESOURCE_PRESSURE_PENALTIES:
             print("\n============================================================")
-            summary = run_setting(energy_weight, high_power_penalty_weight)
+            summary = run_setting(energy_weight, resource_pressure_penalty_weight)
             print_summary(summary)
             summaries.append(summary)
 
@@ -108,7 +108,7 @@ def main():
     for idx, summary in enumerate(ranked, start=1):
         print(
             f"{idx}. energy_weight={summary['energy_weight']:.2f} "
-            f"high_power_penalty={summary['high_power_penalty_weight']:.2f} "
+            f"resource_pressure_penalty={summary['resource_pressure_penalty_weight']:.2f} "
             f"latency_gain={summary['avg_latency_gain']:.4f} "
             f"energy_gain={summary['avg_energy_gain']:.4f} J"
         )

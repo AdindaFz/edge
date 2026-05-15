@@ -2,7 +2,6 @@ import time
 import numpy as np
 
 from central.simulation_model import (
-    calibrated_real_energy_of_configuration,
     energy_of_configuration,
     latency_of_configuration,
     calibrated_active_time,
@@ -22,17 +21,10 @@ def hybrid_tabu_diff(
     NUM_MOVES=70,
     E_ref=None,
     L_ref=None,
-    P_ref=None,
     energy_weight=0.5,
-    resource_pressure_penalty_weight=0.0,
-    energy_model="comparison",
+    high_power_penalty_weight=0.0,
     local_optimizer=None,
     diffusion_stagnation_trigger=12,
-    diffusion_plateau_window=40,
-    diffusion_plateau_min_delta=0.003,
-    early_stop_min_iter=200,
-    early_stop_window=50,
-    early_stop_min_delta=0.002,
 ):
     n_tasks = len(cpu_demands)
     n_nodes = len(cpu_caps)
@@ -41,9 +33,6 @@ def hybrid_tabu_diff(
         current_assign = init_assign.copy()
     else:
         current_assign = np.random.randint(0, n_nodes, size=n_tasks)
-
-    if P_ref is None:
-        P_ref = compute_resource_pressure(current_assign, cpu_demands, cpu_caps, mem_demands, mem_caps)
 
     gbest_assign = current_assign.copy()
     gbest_cost, _ = compute_total_cost_energy_focused(
@@ -57,24 +46,15 @@ def hybrid_tabu_diff(
         max_powers=max_powers,
         E_ref=E_ref,
         L_ref=L_ref,
-        P_ref=P_ref,
         energy_weight=energy_weight,
-        resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-        energy_model=energy_model,
+        high_power_penalty_weight=high_power_penalty_weight,
     )
 
     print(f"[INIT] Initial cost: {gbest_cost:.4f}, assignment: {np.bincount(current_assign)}")
 
     tabu_dict = {}
     no_improve_counter = 0
-    last_diffusion_iter = -10**9
-    history = {
-        "obj": [],
-        "time": [],
-        "resource_pressure_ref": float(P_ref),
-        "diffusion_events": [],
-        "early_stop": None,
-    }
+    history = {"obj": [], "time": []}
     start_time = time.perf_counter()
 
     for it in range(TABU_MAX_ITER):
@@ -146,10 +126,8 @@ def hybrid_tabu_diff(
                 max_powers=max_powers,
                 E_ref=E_ref,
                 L_ref=L_ref,
-                P_ref=P_ref,
                 energy_weight=energy_weight,
-                resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-                energy_model=energy_model,
+                high_power_penalty_weight=high_power_penalty_weight,
             )
 
             is_tabu = move in tabu_dict and tabu_dict[move] > it
@@ -174,21 +152,7 @@ def hybrid_tabu_diff(
             else:
                 no_improve_counter += 1
 
-        plateau_for_diffusion = False
-        if len(history["obj"]) >= diffusion_plateau_window:
-            recent_improvement = history["obj"][-diffusion_plateau_window] - gbest_cost
-            plateau_for_diffusion = recent_improvement < diffusion_plateau_min_delta
-
-        should_run_diffusion = (
-            local_optimizer is not None
-            and (
-                no_improve_counter >= diffusion_stagnation_trigger
-                or plateau_for_diffusion
-            )
-            and it - last_diffusion_iter >= diffusion_stagnation_trigger
-        )
-
-        if should_run_diffusion:
+        if local_optimizer is not None and no_improve_counter >= diffusion_stagnation_trigger:
             refinement_source = current_assign.copy()
             refined_assign = local_optimizer.refine(
                 refinement_source,
@@ -208,10 +172,8 @@ def hybrid_tabu_diff(
                 max_powers=max_powers,
                 E_ref=E_ref,
                 L_ref=L_ref,
-                P_ref=P_ref,
                 energy_weight=energy_weight,
-                resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-                energy_model=energy_model,
+                high_power_penalty_weight=high_power_penalty_weight,
             )
             current_cost, _ = compute_total_cost_energy_focused(
                 refinement_source,
@@ -224,49 +186,20 @@ def hybrid_tabu_diff(
                 max_powers=max_powers,
                 E_ref=E_ref,
                 L_ref=L_ref,
-                P_ref=P_ref,
                 energy_weight=energy_weight,
-                resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-                energy_model=energy_model,
+                high_power_penalty_weight=high_power_penalty_weight,
             )
 
-            last_diffusion_iter = it
             if refined_cost < gbest_cost:
                 gbest_cost = refined_cost
                 gbest_assign = refined_assign.copy()
                 current_assign = refined_assign.copy()
                 no_improve_counter = 0
-                history["diffusion_events"].append(
-                    {
-                        "iteration": int(it),
-                        "accepted": "global_best",
-                        "before": float(current_cost),
-                        "after": float(refined_cost),
-                    }
-                )
                 print(f"[DIFF] Iter {it} | Cost={gbest_cost:.4f} OK")
             elif refined_cost < current_cost:
                 current_assign = refined_assign.copy()
                 no_improve_counter = max(0, diffusion_stagnation_trigger - 4)
-                history["diffusion_events"].append(
-                    {
-                        "iteration": int(it),
-                        "accepted": "current",
-                        "before": float(current_cost),
-                        "after": float(refined_cost),
-                    }
-                )
                 print(f"[DIFF] Iter {it} | Current cost={current_cost:.4f}->{refined_cost:.4f}")
-            else:
-                history["diffusion_events"].append(
-                    {
-                        "iteration": int(it),
-                        "accepted": "rejected",
-                        "before": float(current_cost),
-                        "after": float(refined_cost),
-                    }
-                )
-                print(f"[DIFF] Iter {it} | Rejected cost={current_cost:.4f}->{refined_cost:.4f}")
 
         if no_improve_counter > 20:
             print(f"[SHAKE] Iter {it}: No improve for 20 iters, diversifying...")
@@ -281,27 +214,6 @@ def hybrid_tabu_diff(
 
         if it % 10 == 0:
             print(f"[TABU] Iter {it} | Cost={gbest_cost:.4f}")
-
-        if it + 1 >= early_stop_min_iter and len(history["obj"]) >= early_stop_window:
-            window_improvement = history["obj"][-early_stop_window] - gbest_cost
-            diffusion_tried_recently = (
-                local_optimizer is None
-                or last_diffusion_iter >= it - early_stop_window
-            )
-            if window_improvement < early_stop_min_delta and diffusion_tried_recently:
-                history["early_stop"] = {
-                    "iteration": int(it),
-                    "window": int(early_stop_window),
-                    "improvement": float(window_improvement),
-                    "threshold": float(early_stop_min_delta),
-                    "reason": "plateau",
-                }
-                print(
-                    "[EARLY-STOP] "
-                    f"Iter {it} | plateau improvement={window_improvement:.6f} "
-                    f"< {early_stop_min_delta:.6f}"
-                )
-                break
 
     return gbest_assign, history
 
@@ -321,23 +233,6 @@ def compute_node_utilization(assignments, cpu_demands, cpu_caps, mem_demands, me
     return cpu_used, cpu_util, mem_util
 
 
-def compute_resource_pressure(assignments, cpu_demands, cpu_caps, mem_demands, mem_caps):
-    _, cpu_util, mem_util = compute_node_utilization(
-        assignments,
-        cpu_demands,
-        cpu_caps,
-        mem_demands,
-        mem_caps,
-    )
-    cpu_util = np.clip(cpu_util, 0, 2.0)
-    mem_util = np.clip(mem_util, 0, 2.0)
-
-    cpu_overload_penalty = np.sum(np.maximum(cpu_util - 0.85, 0.0) ** 2)
-    mem_pressure_penalty = np.sum(np.maximum(mem_util - 0.9, 0.0) ** 2)
-
-    return float(1.6 * cpu_overload_penalty + 0.8 * mem_pressure_penalty)
-
-
 def compute_total_cost_energy_focused(
     assignments,
     cpu_demands,
@@ -349,10 +244,8 @@ def compute_total_cost_energy_focused(
     max_powers=None,
     E_ref=None,
     L_ref=None,
-    P_ref=None,
     energy_weight=0.5,
-    resource_pressure_penalty_weight=0.0,
-    energy_model="comparison",
+    high_power_penalty_weight=0.0,
 ):
     n_nodes = len(cpu_caps)
 
@@ -368,34 +261,21 @@ def compute_total_cost_energy_focused(
     cpu_util = np.clip(cpu_util, 0, 2.0)
     mem_util = np.clip(mem_util, 0, 2.0)
 
-    resource_pressure = compute_resource_pressure(
-        assignments,
-        cpu_demands,
-        cpu_caps,
-        mem_demands,
-        mem_caps,
+    cpu_overload_penalty = np.sum(np.maximum(cpu_util - 0.85, 0.0) ** 2)
+    mem_pressure_penalty = np.sum(np.maximum(mem_util - 0.9, 0.0) ** 2)
+    resource_pressure_penalty = high_power_penalty_weight * (
+        1.6 * cpu_overload_penalty + 0.8 * mem_pressure_penalty
     )
 
-    if energy_model == "calibrated_real":
-        total_energy = calibrated_real_energy_of_configuration(
-            assignments,
-            cpu_demands,
-            mem_demands,
-            cpu_caps,
-            mem_caps,
-            idle_powers=idle_powers,
-            max_powers=max_powers,
-        )
-    else:
-        total_energy = energy_of_configuration(
-            assignments,
-            cpu_demands,
-            mem_demands,
-            cpu_caps,
-            mem_caps,
-            idle_powers=idle_powers,
-            max_powers=max_powers,
-        )
+    total_energy = energy_of_configuration(
+        assignments,
+        cpu_demands,
+        mem_demands,
+        cpu_caps,
+        mem_caps,
+        idle_powers=idle_powers,
+        max_powers=max_powers,
+    )
 
     latency, _ = latency_of_configuration(
         assignments,
@@ -413,13 +293,7 @@ def compute_total_cost_energy_focused(
         energy_norm = total_energy
         latency_norm = latency
 
-    if resource_pressure_penalty_weight > 0.0:
-        pressure_norm = (resource_pressure + 1e-6) / (float(P_ref or 0.0) + 1e-6)
-        effective_energy_norm = (
-            energy_norm + resource_pressure_penalty_weight * pressure_norm
-        ) / (1.0 + resource_pressure_penalty_weight)
-    else:
-        effective_energy_norm = energy_norm
+    effective_energy_norm = energy_norm + resource_pressure_penalty
 
     cost = (
         energy_weight * effective_energy_norm +

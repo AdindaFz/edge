@@ -14,7 +14,7 @@ EDGE_NODES = {
         "port": 8001
     },
     "edge-2": {
-        "ip": "10.33.102.108",    # adinda2
+        "ip": "10.33.102.101",    # adinda2
         "port": 8002
     },
     "edge-3": {

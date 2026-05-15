@@ -723,10 +723,11 @@
 
         function parseTime(timestamp) {
             if (!timestamp) return null;
-            const direct = new Date(timestamp);
-            if (!Number.isNaN(direct.getTime())) return direct;
-            const withUtc = new Date(`${timestamp}Z`);
-            return Number.isNaN(withUtc.getTime()) ? null : withUtc;
+            const value = String(timestamp);
+            const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+            const normalized = hasTimezone ? value : `${value}Z`;
+            const parsed = new Date(normalized);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
         }
 
         function timeAgo(timestamp) {

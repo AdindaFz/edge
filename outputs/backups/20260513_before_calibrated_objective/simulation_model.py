@@ -119,54 +119,6 @@ def energy_of_configuration(
     return float(total_energy)
 
 
-def calibrated_real_energy_of_configuration(
-    assignments,
-    cpu_demands,
-    mem_demands,
-    cpu_caps,
-    mem_caps,
-    idle_powers=None,
-    max_powers=None,
-):
-    N_nodes = len(cpu_caps)
-
-    if idle_powers is None:
-        idle_powers = np.full(N_nodes, 8.0)
-    if max_powers is None:
-        max_powers = np.full(N_nodes, 20.0)
-
-    total_energy = 0.0
-
-    for t, node in enumerate(assignments):
-        cpu_cap = max(float(cpu_caps[node]), 1e-6)
-        mem_cap = max(float(mem_caps[node]), 1e-6)
-        idle_power = float(idle_powers[node])
-        max_power = float(max_powers[node])
-        dynamic_power_span = max(0.0, max_power - idle_power)
-
-        cpu_ratio = min(float(cpu_demands[t]) / cpu_cap, 1.0)
-        mem_ratio = min(float(mem_demands[t]) / mem_cap, 1.0)
-        active_time_s = calibrated_active_time(cpu_demands[t], cpu_cap)
-
-        idle_energy = idle_power * active_time_s
-        cpu_dynamic_energy = calibrated_cpu_dynamic_energy(
-            cpu_ratio,
-            active_time_s,
-            cpu_cap,
-            dynamic_power_span,
-        )
-        memory_dynamic_energy = calibrated_memory_dynamic_energy(
-            mem_ratio,
-            active_time_s,
-            cpu_cap,
-            dynamic_power_span,
-        )
-
-        total_energy += idle_energy + cpu_dynamic_energy + memory_dynamic_energy
-
-    return float(total_energy)
-
-
 def latency_of_configuration(
     assignments,
     cpu_demands,

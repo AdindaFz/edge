@@ -10,7 +10,7 @@ from central.simulation_model import (
 )
 
 TABU_ENERGY_WEIGHT = 0.5
-TABU_RESOURCE_PRESSURE_PENALTY_WEIGHT = 0.02
+TABU_HIGH_POWER_PENALTY_WEIGHT = 0.0
 
 
 def random_assignment(tasks, nodes, rng=None):
@@ -91,10 +91,8 @@ def tabu_assignment(
     local_mode="diffusion",
     E_ref=None,
     L_ref=None,
-    P_ref=None,
     energy_weight=TABU_ENERGY_WEIGHT,
-    resource_pressure_penalty_weight=TABU_RESOURCE_PRESSURE_PENALTY_WEIGHT,
-    energy_model="comparison",
+    high_power_penalty_weight=TABU_HIGH_POWER_PENALTY_WEIGHT,
 ):
     node_ids = sorted(nodes.keys())
     n_nodes = len(node_ids)
@@ -137,16 +135,11 @@ def tabu_assignment(
         NUM_MOVES=70,
         E_ref=E_ref,
         L_ref=L_ref,
-        P_ref=P_ref,
         energy_weight=energy_weight,
-        resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-        energy_model=energy_model,
+        high_power_penalty_weight=high_power_penalty_weight,
         local_optimizer=diffusion if use_stagnation_diffusion else None,
         diffusion_stagnation_trigger=12,
     )
-
-    if P_ref is None and history is not None:
-        P_ref = history.get("resource_pressure_ref")
 
     if local_mode == "final_diffusion":
         tabu_cost, _ = compute_total_cost_energy_focused(
@@ -160,10 +153,8 @@ def tabu_assignment(
             max_powers=max_powers,
             E_ref=E_ref,
             L_ref=L_ref,
-            P_ref=P_ref,
             energy_weight=energy_weight,
-            resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-            energy_model=energy_model,
+            high_power_penalty_weight=high_power_penalty_weight,
         )
         tabu_energy = energy_of_configuration(
             best_assign,
@@ -201,10 +192,8 @@ def tabu_assignment(
             max_powers=max_powers,
             E_ref=E_ref,
             L_ref=L_ref,
-            P_ref=P_ref,
             energy_weight=energy_weight,
-            resource_pressure_penalty_weight=resource_pressure_penalty_weight,
-            energy_model=energy_model,
+            high_power_penalty_weight=high_power_penalty_weight,
         )
         refined_energy = energy_of_configuration(
             refined_assign,

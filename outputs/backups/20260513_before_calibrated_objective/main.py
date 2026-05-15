@@ -5,9 +5,6 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 from central.offline_runner import (
-    BASELINE_SEED,
-    RANDOM_BASELINE_DIRICHLET_ALPHA,
-    RANDOM_BASELINE_MODE,
     run_offline_experiment,
     compute_metrics,
     print_metrics,
@@ -22,12 +19,8 @@ PLOT_DIR = "outputs"
 RUN_ID = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 RUN_OUTPUT_DIR = os.path.join(PLOT_DIR, "runs")
 PLOT_PATH = os.path.join(RUN_OUTPUT_DIR, "tabu_diffusion_convergence_{n_tasks}_{run_id}.png")
-COMPARISON_PLOT_PATH = os.path.join(RUN_OUTPUT_DIR, "random_vs_tabu_metrics_{n_tasks}_{run_id}.png")
 RUN_DIFFUSION_EXPERIMENT = False
 CALIBRATION_DIR = os.path.join(PLOT_DIR, "calibration")
-OBJECTIVE_ENERGY_MODEL = os.getenv("OBJECTIVE_ENERGY_MODEL", "calibrated_real")
-OBJECTIVE_ENERGY_WEIGHT = float(os.getenv("OBJECTIVE_ENERGY_WEIGHT", "0.5"))
-OBJECTIVE_LATENCY_WEIGHT = 1.0 - OBJECTIVE_ENERGY_WEIGHT
 
 
 class TeeStdout:
@@ -99,13 +92,6 @@ def print_sample_results(results, title, limit=5):
         )
 
 
-def assignment_map(results):
-    return {
-        row["task_id"]: row.get("node")
-        for row in sorted(results, key=lambda item: item["task_id"])
-    }
-
-
 def plot_convergence(history, path):
     if not history or not history.get("obj"):
         print("No convergence history to plot.")
@@ -123,114 +109,6 @@ def plot_convergence(history, path):
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"Convergence plot saved: {path}")
-
-
-def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-    panels = [
-        (
-            "Real Estimated Energy",
-            "Joule",
-            [
-                metrics_random["estimated_real_energy_j"],
-                metrics_tabu["estimated_real_energy_j"],
-            ],
-        ),
-        (
-            "Real Average Latency",
-            "Second",
-            [
-                metrics_random["real_avg_latency"],
-                metrics_tabu["real_avg_latency"],
-            ],
-        ),
-        (
-            "Model Latency",
-            "Model unit",
-            [
-                metrics_random["model_avg_latency"],
-                metrics_tabu["model_avg_latency"],
-            ],
-        ),
-        (
-            "Comparison Model Energy",
-            "Model unit",
-            [
-                metrics_random["model_total_energy"],
-                metrics_tabu["model_total_energy"],
-            ],
-        ),
-        (
-            "Calibrated Model Energy",
-            "Model unit",
-            [
-                metrics_random["model_calibrated_real_energy"],
-                metrics_tabu["model_calibrated_real_energy"],
-            ],
-        ),
-    ]
-
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7))
-    axes = axes.flatten()
-    labels = ["Random", "Tabu + Diffusion"]
-    colors = ["#6b7280", "#0ea5a3"]
-
-    for ax, (title, ylabel, values) in zip(axes, panels):
-        bars = ax.bar(labels, values, color=colors, width=0.62)
-        ax.set_title(title)
-        ax.set_ylabel(ylabel)
-        ax.grid(axis="y", alpha=0.25)
-        ax.tick_params(axis="x", rotation=8)
-
-        ymax = max(values) if values else 0
-        for bar, value in zip(bars, values):
-            label = f"{value:.4f}" if abs(value) < 100 else f"{value:.2f}"
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + max(ymax * 0.015, 1e-9),
-                label,
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
-
-    improvement_ax = axes[-1]
-    improvement_ax.axis("off")
-    energy_delta = metrics_tabu["estimated_real_energy_j"] - metrics_random["estimated_real_energy_j"]
-    latency_delta = metrics_tabu["real_avg_latency"] - metrics_random["real_avg_latency"]
-    energy_pct = energy_delta / max(metrics_random["estimated_real_energy_j"], 1e-9) * 100.0
-    latency_pct = latency_delta / max(metrics_random["real_avg_latency"], 1e-9) * 100.0
-    calibrated_delta = (
-        metrics_tabu["model_calibrated_real_energy"]
-        - metrics_random["model_calibrated_real_energy"]
-    )
-    calibrated_pct = (
-        calibrated_delta
-        / max(metrics_random["model_calibrated_real_energy"], 1e-9)
-        * 100.0
-    )
-
-    summary_text = (
-        "Tabu - Random\n\n"
-        f"Real energy: {energy_delta:+.2f} J ({energy_pct:+.2f}%)\n"
-        f"Real latency: {latency_delta:+.4f} s ({latency_pct:+.2f}%)\n"
-        f"Calibrated model energy: {calibrated_delta:+.2f} ({calibrated_pct:+.2f}%)"
-    )
-    improvement_ax.text(
-        0.02,
-        0.94,
-        summary_text,
-        va="top",
-        fontsize=11,
-        family="monospace",
-    )
-
-    fig.suptitle("Random vs Tabu + Diffusion", fontsize=15, fontweight="bold")
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-    print(f"Comparison metrics plot saved: {path}")
 
 
 def summarize_convergence(history):
@@ -383,12 +261,6 @@ def export_calibration_dataset(path, tasks, results_by_mode, nodes):
 
 
 print(f"=== RUN ID: {RUN_ID} ===")
-print(
-    "=== OBJECTIVE CONFIG ===\n"
-    f"energy_model={OBJECTIVE_ENERGY_MODEL} "
-    f"energy_weight={OBJECTIVE_ENERGY_WEIGHT:.2f} "
-    f"latency_weight={OBJECTIVE_LATENCY_WEIGHT:.2f}"
-)
 
 tasks = generate_batch(N_TASKS)
 
@@ -410,11 +282,7 @@ print("\n=== RANDOM ===")
 print_metrics(metrics_random)
 print_sample_results(res_random, "RANDOM")
 
-E_ref = (
-    metrics_random["model_calibrated_real_energy"]
-    if OBJECTIVE_ENERGY_MODEL == "calibrated_real"
-    else metrics_random["model_total_energy"]
-)
+E_ref = metrics_random["model_total_energy"]
 L_ref = metrics_random["model_avg_latency"]
 
 res_tabu_diff, history_tabu_diff = run_offline_experiment(
@@ -424,13 +292,6 @@ res_tabu_diff, history_tabu_diff = run_offline_experiment(
     L_ref=L_ref,
     return_history=True,
     local_mode="diffusion",
-    tabu_energy_weight=OBJECTIVE_ENERGY_WEIGHT,
-    tabu_energy_model=OBJECTIVE_ENERGY_MODEL,
-)
-P_ref = (
-    history_tabu_diff.get("resource_pressure_ref")
-    if history_tabu_diff is not None
-    else None
 )
 metrics_tabu_diff = compute_metrics(res_tabu_diff, tasks, NODE_RESOURCES)
 
@@ -470,11 +331,9 @@ for node, mem_bytes in calc_memory_per_node(res_tabu_diff).items():
     print(f"  {node}: {mem_bytes:.0f} bytes")
 
 plot_path = PLOT_PATH.format(n_tasks=N_TASKS, run_id=RUN_ID)
-comparison_plot_path = COMPARISON_PLOT_PATH.format(n_tasks=N_TASKS, run_id=RUN_ID)
 convergence_tabu_diff = summarize_convergence(history_tabu_diff)
 print_convergence_summary(convergence_tabu_diff, "TABU + DIFFUSION")
 plot_convergence(history_tabu_diff, plot_path)
-plot_random_vs_tabu_metrics(metrics_random, metrics_tabu_diff, comparison_plot_path)
 export_calibration_dataset(
     os.path.join(
         CALIBRATION_DIR,
@@ -497,7 +356,6 @@ if RUN_DIFFUSION_EXPERIMENT:
         "tabu",
         E_ref=E_ref,
         L_ref=L_ref,
-        P_ref=P_ref,
         return_history=True,
         local_mode="final_diffusion",
     )
@@ -520,20 +378,14 @@ save_run_json(
             "run_diffusion_experiment": RUN_DIFFUSION_EXPERIMENT,
             "primary_mode": "tabu_diffusion",
             "plot_path": plot_path,
-            "comparison_plot_path": comparison_plot_path,
             "objective_weights": {
-                "energy": OBJECTIVE_ENERGY_WEIGHT,
-                "latency": OBJECTIVE_LATENCY_WEIGHT,
+                "energy": 0.5,
+                "latency": 0.5,
             },
-            "objective_energy_model": OBJECTIVE_ENERGY_MODEL,
-            "random_baseline_mode": RANDOM_BASELINE_MODE,
-            "random_baseline_dirichlet_alpha": RANDOM_BASELINE_DIRICHLET_ALPHA,
-            "random_baseline_seed": BASELINE_SEED,
         },
         "references": {
             "E_ref": E_ref,
             "L_ref": L_ref,
-            "P_ref": P_ref,
         },
         "tasks": tasks,
         "metrics": {
@@ -548,15 +400,6 @@ save_run_json(
             "random": res_random,
             "tabu_diffusion": res_tabu_diff,
             "tabu_final_diffusion": res_tabu_final_diff,
-        },
-        "assignments": {
-            "random": assignment_map(res_random),
-            "tabu_diffusion": assignment_map(res_tabu_diff),
-            "tabu_final_diffusion": (
-                assignment_map(res_tabu_final_diff)
-                if res_tabu_final_diff is not None
-                else None
-            ),
         },
         "convergence": {
             "tabu_diffusion": convergence_tabu_diff,
