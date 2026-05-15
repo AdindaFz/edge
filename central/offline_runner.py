@@ -348,7 +348,7 @@ def run_offline_experiment(
     return results
 
 
-def compute_metrics(results, tasks, nodes):
+def compute_metrics(results, tasks, nodes, energy_model="calibrated_real"):
     node_ids = sorted_node_ids(nodes)
     result_map = {r["task_id"]: r for r in results}
 
@@ -439,6 +439,11 @@ def compute_metrics(results, tasks, nodes):
         idle_powers=idle_powers,
         max_powers=max_powers,
     )
+    selected_model_energy = (
+        total_energy_calibrated_model
+        if energy_model == "calibrated_real"
+        else total_energy_model
+    )
 
     avg_latency_model, _ = latency_of_configuration(
         assignments,
@@ -466,6 +471,8 @@ def compute_metrics(results, tasks, nodes):
         "real_total_task_clock_ms": float(np.sum(observed_task_clock_samples)) if observed_task_clock_samples else 0.0,
         "real_avg_memory_bytes": float(np.mean(observed_memory_samples)) if observed_memory_samples else 0.0,
         "model_avg_latency": float(avg_latency_model),
+        "model_energy": float(selected_model_energy),
+        "model_energy_source": energy_model,
         "model_total_energy": float(total_energy_model),
         "model_calibrated_real_energy": float(total_energy_calibrated_model),
         "distribution": dict(Counter(nodes_used)),
@@ -493,8 +500,7 @@ def print_metrics(metrics):
 
     print("\n[MODEL]")
     print(f"Avg Latency           : {metrics['model_avg_latency']:.4f}")
-    print(f"Model Energy (J)      : {metrics['model_total_energy']:.4f}")
-    print(f"Calibrated Energy (J) : {metrics['model_calibrated_real_energy']:.4f}")
+    print(f"Model Energy (J)      : {metrics['model_energy']:.4f}")
 
     print("\n[Distribution]")
     print(metrics["distribution"])
@@ -513,8 +519,7 @@ def print_all_comparison_table(metrics_random, metrics_tabu, n_tasks):
         ("Real avg task clock ms", metrics_random["real_avg_task_clock_ms"], metrics_tabu["real_avg_task_clock_ms"]),
         ("Real total task clock ms", metrics_random["real_total_task_clock_ms"], metrics_tabu["real_total_task_clock_ms"]),
         ("Model avg latency", metrics_random["model_avg_latency"], metrics_tabu["model_avg_latency"]),
-        ("Model energy J", metrics_random["model_total_energy"], metrics_tabu["model_total_energy"]),
-        ("Calibrated model energy J", metrics_random["model_calibrated_real_energy"], metrics_tabu["model_calibrated_real_energy"]),
+        ("Model energy J", metrics_random["model_energy"], metrics_tabu["model_energy"]),
     ]
 
     print(f"\n=== COMPARISON TABLE (n_tasks={n_tasks}) ===")

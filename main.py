@@ -128,7 +128,7 @@ def plot_convergence(history, path):
 def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    panels = [
+    panel_specs = [
         (
             "Real Estimated Energy",
             "Joule",
@@ -146,6 +146,14 @@ def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
             ],
         ),
         (
+            "Model Energy",
+            "Model unit",
+            [
+                metrics_random["model_energy"],
+                metrics_tabu["model_energy"],
+            ],
+        ),
+        (
             "Model Latency",
             "Model unit",
             [
@@ -153,30 +161,20 @@ def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
                 metrics_tabu["model_avg_latency"],
             ],
         ),
-        (
-            "Comparison Model Energy",
-            "Model unit",
-            [
-                metrics_random["model_total_energy"],
-                metrics_tabu["model_total_energy"],
-            ],
-        ),
-        (
-            "Calibrated Model Energy",
-            "Model unit",
-            [
-                metrics_random["model_calibrated_real_energy"],
-                metrics_tabu["model_calibrated_real_energy"],
-            ],
-        ),
     ]
 
-    fig, axes = plt.subplots(2, 3, figsize=(13, 7))
-    axes = axes.flatten()
+    fig = plt.figure(figsize=(13, 7))
+    grid = fig.add_gridspec(2, 3, width_ratios=[1.0, 1.0, 0.95])
+    axes = [
+        fig.add_subplot(grid[0, 0]),
+        fig.add_subplot(grid[0, 1]),
+        fig.add_subplot(grid[1, 0]),
+        fig.add_subplot(grid[1, 1]),
+    ]
     labels = ["Random", "Tabu + Diffusion"]
     colors = ["#6b7280", "#0ea5a3"]
 
-    for ax, (title, ylabel, values) in zip(axes, panels):
+    for ax, (title, ylabel, values) in zip(axes, panel_specs):
         bars = ax.bar(labels, values, color=colors, width=0.62)
         ax.set_title(title)
         ax.set_ylabel(ylabel)
@@ -195,19 +193,19 @@ def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
                 fontsize=8,
             )
 
-    improvement_ax = axes[-1]
+    improvement_ax = fig.add_subplot(grid[:, 2])
     improvement_ax.axis("off")
     energy_delta = metrics_tabu["estimated_real_energy_j"] - metrics_random["estimated_real_energy_j"]
     latency_delta = metrics_tabu["real_avg_latency"] - metrics_random["real_avg_latency"]
     energy_pct = energy_delta / max(metrics_random["estimated_real_energy_j"], 1e-9) * 100.0
     latency_pct = latency_delta / max(metrics_random["real_avg_latency"], 1e-9) * 100.0
-    calibrated_delta = (
-        metrics_tabu["model_calibrated_real_energy"]
-        - metrics_random["model_calibrated_real_energy"]
+    model_energy_delta = (
+        metrics_tabu["model_energy"]
+        - metrics_random["model_energy"]
     )
-    calibrated_pct = (
-        calibrated_delta
-        / max(metrics_random["model_calibrated_real_energy"], 1e-9)
+    model_energy_pct = (
+        model_energy_delta
+        / max(metrics_random["model_energy"], 1e-9)
         * 100.0
     )
 
@@ -215,7 +213,7 @@ def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
         "Tabu - Random\n\n"
         f"Real energy: {energy_delta:+.2f} J ({energy_pct:+.2f}%)\n"
         f"Real latency: {latency_delta:+.4f} s ({latency_pct:+.2f}%)\n"
-        f"Calibrated model energy: {calibrated_delta:+.2f} ({calibrated_pct:+.2f}%)"
+        f"Model energy: {model_energy_delta:+.2f} ({model_energy_pct:+.2f}%)"
     )
     improvement_ax.text(
         0.02,
@@ -404,17 +402,18 @@ for t in tasks[:5]:
     )
 
 res_random, _ = run_offline_experiment(tasks, "random", return_history=True)
-metrics_random = compute_metrics(res_random, tasks, NODE_RESOURCES)
+metrics_random = compute_metrics(
+    res_random,
+    tasks,
+    NODE_RESOURCES,
+    energy_model=OBJECTIVE_ENERGY_MODEL,
+)
 
 print("\n=== RANDOM ===")
 print_metrics(metrics_random)
 print_sample_results(res_random, "RANDOM")
 
-E_ref = (
-    metrics_random["model_calibrated_real_energy"]
-    if OBJECTIVE_ENERGY_MODEL == "calibrated_real"
-    else metrics_random["model_total_energy"]
-)
+E_ref = metrics_random["model_energy"]
 L_ref = metrics_random["model_avg_latency"]
 
 res_tabu_diff, history_tabu_diff = run_offline_experiment(
@@ -432,7 +431,12 @@ P_ref = (
     if history_tabu_diff is not None
     else None
 )
-metrics_tabu_diff = compute_metrics(res_tabu_diff, tasks, NODE_RESOURCES)
+metrics_tabu_diff = compute_metrics(
+    res_tabu_diff,
+    tasks,
+    NODE_RESOURCES,
+    energy_model=OBJECTIVE_ENERGY_MODEL,
+)
 
 print("\n=== TABU + DIFFUSION ===")
 print_metrics(metrics_tabu_diff)
@@ -501,7 +505,12 @@ if RUN_DIFFUSION_EXPERIMENT:
         return_history=True,
         local_mode="final_diffusion",
     )
-    metrics_tabu_final_diff = compute_metrics(res_tabu_final_diff, tasks, NODE_RESOURCES)
+    metrics_tabu_final_diff = compute_metrics(
+        res_tabu_final_diff,
+        tasks,
+        NODE_RESOURCES,
+        energy_model=OBJECTIVE_ENERGY_MODEL,
+    )
 
     print("\n=== EXPERIMENT: TABU + FINAL DIFFUSION ===")
     print_metrics(metrics_tabu_final_diff)
