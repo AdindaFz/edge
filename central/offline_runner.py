@@ -24,6 +24,7 @@ BASELINE_SEED = 2026 + 17
 HIGH_POWER_ENERGY_PENALTY_WEIGHT = float(os.getenv("HIGH_POWER_ENERGY_PENALTY_WEIGHT", "0.15"))
 RANDOM_BASELINE_MODE = os.getenv("RANDOM_BASELINE_MODE", "skewed_random")
 RANDOM_BASELINE_DIRICHLET_ALPHA = float(os.getenv("RANDOM_BASELINE_DIRICHLET_ALPHA", "0.25"))
+RANDOM_BASELINE_REFERENCE_TRIALS = int(os.getenv("RANDOM_BASELINE_REFERENCE_TRIALS", "30"))
 
 
 def normalize_perf_clock_seconds(clock_value, execution_time=None):
@@ -153,7 +154,7 @@ def random_baseline_probabilities(nodes, node_ids, rng=None):
     return weights / weights.sum()
 
 
-def freeze_baseline_assignment(tasks, nodes, node_ids, seed=BASELINE_SEED):
+def freeze_baseline_assignment(tasks, nodes, node_ids, seed=BASELINE_SEED, verbose=True):
     rng = np.random.default_rng(seed)
     baseline_node_probs = random_baseline_probabilities(nodes, node_ids, rng=rng)
     baseline_indices = rng.choice(
@@ -166,17 +167,134 @@ def freeze_baseline_assignment(tasks, nodes, node_ids, seed=BASELINE_SEED):
         task["task_id"]: node_ids[int(node_idx)]
         for task, node_idx in zip(tasks, baseline_indices)
     }
-    print(
-        "[BASELINE] random_mode="
-        f"{RANDOM_BASELINE_MODE} "
-        f"dirichlet_alpha={RANDOM_BASELINE_DIRICHLET_ALPHA:.3f} "
-        "probs="
-        + ", ".join(
-            f"{node_ids[i]}:{baseline_node_probs[i]:.3f}"
-            for i in range(len(node_ids))
+    if verbose:
+        print(
+            "[BASELINE] random_mode="
+            f"{RANDOM_BASELINE_MODE} "
+            f"dirichlet_alpha={RANDOM_BASELINE_DIRICHLET_ALPHA:.3f} "
+            "probs="
+            + ", ".join(
+                f"{node_ids[i]}:{baseline_node_probs[i]:.3f}"
+                for i in range(len(node_ids))
+            )
         )
-    )
     return baseline_assignment, baseline_indices
+
+
+def compute_assignment_model_metrics(tasks, nodes, assignment_indices, energy_model="calibrated_real"):
+    node_ids = sorted_node_ids(nodes)
+    assignments = np.array(assignment_indices, dtype=int)
+    cpu_demands = np.array([t["cpu_demand"] for t in tasks], dtype=float)
+    mem_demands = np.array([t["memory_demand"] for t in tasks], dtype=float)
+    cpu_caps = np.array([float(nodes[n]["cpu"]) for n in node_ids], dtype=float)
+    mem_caps = np.array([float(nodes[n]["mem"]) for n in node_ids], dtype=float)
+    latency_ms = np.array([float(nodes[n]["network_delay"]) for n in node_ids], dtype=float)
+    idle_powers = np.array(
+        [float(nodes[n].get("idle_power_w", 5.0 * nodes[n]["power"])) for n in node_ids],
+        dtype=float,
+    )
+    max_powers = np.array(
+        [float(nodes[n].get("max_power_w", 12.0 * nodes[n]["power"])) for n in node_ids],
+        dtype=float,
+    )
+
+    comparison_energy = energy_of_configuration(
+        assignments,
+        cpu_demands,
+        mem_demands,
+        cpu_caps,
+        mem_caps,
+        idle_powers=idle_powers,
+        max_powers=max_powers,
+    )
+    calibrated_energy = calibrated_real_energy_of_configuration(
+        assignments,
+        cpu_demands,
+        mem_demands,
+        cpu_caps,
+        mem_caps,
+        idle_powers=idle_powers,
+        max_powers=max_powers,
+    )
+    avg_latency, _ = latency_of_configuration(
+        assignments,
+        cpu_demands,
+        mem_demands,
+        latency_ms=latency_ms,
+        cpu_caps=cpu_caps,
+        mem_caps=mem_caps,
+    )
+
+    return {
+        "model_energy": float(calibrated_energy if energy_model == "calibrated_real" else comparison_energy),
+        "model_total_energy": float(comparison_energy),
+        "model_calibrated_real_energy": float(calibrated_energy),
+        "model_avg_latency": float(avg_latency),
+    }
+
+
+def compute_random_baseline_average_reference(
+    tasks,
+    nodes=None,
+    trials=RANDOM_BASELINE_REFERENCE_TRIALS,
+    seed=BASELINE_SEED,
+    energy_model="calibrated_real",
+):
+    active_nodes = nodes or get_active_nodes_with_resources()
+    if not active_nodes:
+        print("[WARN] No active nodes detected for baseline average, fallback ke semua node")
+        active_nodes = {
+            nid: {**EDGE_NODES[nid], **NODE_RESOURCES[nid]}
+            for nid in EDGE_NODES.keys()
+        }
+
+    node_ids = sorted_node_ids(active_nodes)
+    trial_count = max(int(trials), 1)
+    energy_samples = []
+    latency_samples = []
+    comparison_energy_samples = []
+    calibrated_energy_samples = []
+
+    for offset in range(trial_count):
+        _, baseline_indices = freeze_baseline_assignment(
+            tasks,
+            active_nodes,
+            node_ids,
+            seed=seed + offset,
+            verbose=False,
+        )
+        metrics = compute_assignment_model_metrics(
+            tasks,
+            active_nodes,
+            baseline_indices,
+            energy_model=energy_model,
+        )
+        energy_samples.append(metrics["model_energy"])
+        latency_samples.append(metrics["model_avg_latency"])
+        comparison_energy_samples.append(metrics["model_total_energy"])
+        calibrated_energy_samples.append(metrics["model_calibrated_real_energy"])
+
+    reference = {
+        "E_ref": float(np.mean(energy_samples)),
+        "L_ref": float(np.mean(latency_samples)),
+        "trials": trial_count,
+        "seed_start": seed,
+        "energy_model": energy_model,
+        "model_energy_mean": float(np.mean(energy_samples)),
+        "model_energy_std": float(np.std(energy_samples)),
+        "model_avg_latency_mean": float(np.mean(latency_samples)),
+        "model_avg_latency_std": float(np.std(latency_samples)),
+        "model_total_energy_mean": float(np.mean(comparison_energy_samples)),
+        "model_calibrated_real_energy_mean": float(np.mean(calibrated_energy_samples)),
+    }
+    print(
+        "[BASELINE-AVG] "
+        f"trials={trial_count} "
+        f"energy_model={energy_model} "
+        f"E_ref={reference['E_ref']:.4f} "
+        f"L_ref={reference['L_ref']:.4f}"
+    )
+    return reference
 
 
 def send_task_to_node(task, node_id):
@@ -241,6 +359,8 @@ def run_offline_experiment(
     tabu_energy_weight=None,
     tabu_resource_pressure_penalty_weight=None,
     tabu_energy_model="comparison",
+    phase_callback=None,
+    baseline_seed=BASELINE_SEED,
 ):
     results = []
     active_nodes = get_active_nodes_with_resources()
@@ -254,13 +374,17 @@ def run_offline_experiment(
         }
 
     node_ids = sorted_node_ids(active_nodes)
-    baseline_assignment, baseline_indices = freeze_baseline_assignment(tasks, active_nodes, node_ids)
+    baseline_assignment, baseline_indices = freeze_baseline_assignment(tasks, active_nodes, node_ids, seed=baseline_seed)
     init_assign = np.array(baseline_indices, dtype=int)
 
     if mode == "random":
         assignments = baseline_assignment
+        if phase_callback:
+            phase_callback("random_run", "Running random baseline tasks")
 
     elif mode == "tabu":
+        if phase_callback:
+            phase_callback("optimization", "Optimizing task placement with Tabu + Diffusion")
         assignments, history = tabu_assignment(
             tasks,
             active_nodes,
@@ -281,6 +405,8 @@ def run_offline_experiment(
             ),
             energy_model=tabu_energy_model,
         )
+        if phase_callback:
+            phase_callback("optimized_run", "Running tasks with the optimized assignment")
 
     else:
         assignments = optimized_assignment(tasks, active_nodes)
@@ -510,16 +636,9 @@ def print_all_comparison_table(metrics_random, metrics_tabu, n_tasks):
     rows = [
         ("Real avg latency", metrics_random["real_avg_latency"], metrics_tabu["real_avg_latency"]),
         ("Real total latency", metrics_random["real_total_latency"], metrics_tabu["real_total_latency"]),
-        ("Real avg exec time", metrics_random["real_avg_execution_time"], metrics_tabu["real_avg_execution_time"]),
-        ("Real total exec time", metrics_random["real_total_execution_time"], metrics_tabu["real_total_execution_time"]),
         ("Estimated energy J", metrics_random["estimated_real_energy_j"], metrics_tabu["estimated_real_energy_j"]),
-        ("Estimated energy kWh", metrics_random["estimated_real_energy_kwh"], metrics_tabu["estimated_real_energy_kwh"]),
         ("Base energy J", metrics_random["estimated_base_energy_j"], metrics_tabu["estimated_base_energy_j"]),
         ("High-power penalty J", metrics_random["estimated_high_power_penalty_j"], metrics_tabu["estimated_high_power_penalty_j"]),
-        ("Real avg task clock ms", metrics_random["real_avg_task_clock_ms"], metrics_tabu["real_avg_task_clock_ms"]),
-        ("Real total task clock ms", metrics_random["real_total_task_clock_ms"], metrics_tabu["real_total_task_clock_ms"]),
-        ("Model avg latency", metrics_random["model_avg_latency"], metrics_tabu["model_avg_latency"]),
-        ("Model energy J", metrics_random["model_energy"], metrics_tabu["model_energy"]),
     ]
 
     print(f"\n=== COMPARISON TABLE (n_tasks={n_tasks}) ===")

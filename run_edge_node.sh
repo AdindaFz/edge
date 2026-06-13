@@ -22,6 +22,8 @@ export NODE_PORT="${NODE_PORT:-800${NODE_NUMBER}}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if [ -x "$ROOT_DIR/venv/bin/python" ]; then
     PYTHON_BIN="$ROOT_DIR/venv/bin/python"
+elif [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 fi
 
 echo "Starting edge node"

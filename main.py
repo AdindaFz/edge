@@ -3,11 +3,14 @@ import json
 import sys
 from datetime import datetime
 import matplotlib.pyplot as plt
+import requests
 
 from central.offline_runner import (
     BASELINE_SEED,
     RANDOM_BASELINE_DIRICHLET_ALPHA,
     RANDOM_BASELINE_MODE,
+    RANDOM_BASELINE_REFERENCE_TRIALS,
+    compute_random_baseline_average_reference,
     run_offline_experiment,
     compute_metrics,
     print_metrics,
@@ -15,6 +18,7 @@ from central.offline_runner import (
 )
 from central.task_generator import generate_batch
 from central.node_resources import NODE_RESOURCES
+from config import CENTRAL_IP, CENTRAL_PORT
 
 
 N_TASKS = 300
@@ -28,6 +32,19 @@ CALIBRATION_DIR = os.path.join(PLOT_DIR, "calibration")
 OBJECTIVE_ENERGY_MODEL = os.getenv("OBJECTIVE_ENERGY_MODEL", "calibrated_real")
 OBJECTIVE_ENERGY_WEIGHT = float(os.getenv("OBJECTIVE_ENERGY_WEIGHT", "0.5"))
 OBJECTIVE_LATENCY_WEIGHT = 1.0 - OBJECTIVE_ENERGY_WEIGHT
+EXPERIMENT_STATUS_URL = f"http://{CENTRAL_IP}:{CENTRAL_PORT}/experiment/status"
+
+
+def report_experiment_phase(phase, message):
+    try:
+        requests.post(
+            EXPERIMENT_STATUS_URL,
+            json={"run_id": RUN_ID, "phase": phase, "message": message},
+            timeout=2,
+        ).raise_for_status()
+    except requests.RequestException as exc:
+        print(f"[WARN] Dashboard phase update failed: {exc}")
+
 
 
 class TeeStdout:
@@ -145,32 +162,9 @@ def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
                 metrics_tabu["real_avg_latency"],
             ],
         ),
-        (
-            "Model Energy",
-            "Model unit",
-            [
-                metrics_random["model_energy"],
-                metrics_tabu["model_energy"],
-            ],
-        ),
-        (
-            "Model Latency",
-            "Model unit",
-            [
-                metrics_random["model_avg_latency"],
-                metrics_tabu["model_avg_latency"],
-            ],
-        ),
     ]
 
-    fig = plt.figure(figsize=(13, 7))
-    grid = fig.add_gridspec(2, 3, width_ratios=[1.0, 1.0, 0.95])
-    axes = [
-        fig.add_subplot(grid[0, 0]),
-        fig.add_subplot(grid[0, 1]),
-        fig.add_subplot(grid[1, 0]),
-        fig.add_subplot(grid[1, 1]),
-    ]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
     labels = ["Random", "Tabu + Diffusion"]
     colors = ["#6b7280", "#0ea5a3"]
 
@@ -192,37 +186,6 @@ def plot_random_vs_tabu_metrics(metrics_random, metrics_tabu, path):
                 va="bottom",
                 fontsize=8,
             )
-
-    improvement_ax = fig.add_subplot(grid[:, 2])
-    improvement_ax.axis("off")
-    energy_delta = metrics_tabu["estimated_real_energy_j"] - metrics_random["estimated_real_energy_j"]
-    latency_delta = metrics_tabu["real_avg_latency"] - metrics_random["real_avg_latency"]
-    energy_pct = energy_delta / max(metrics_random["estimated_real_energy_j"], 1e-9) * 100.0
-    latency_pct = latency_delta / max(metrics_random["real_avg_latency"], 1e-9) * 100.0
-    model_energy_delta = (
-        metrics_tabu["model_energy"]
-        - metrics_random["model_energy"]
-    )
-    model_energy_pct = (
-        model_energy_delta
-        / max(metrics_random["model_energy"], 1e-9)
-        * 100.0
-    )
-
-    summary_text = (
-        "Tabu - Random\n\n"
-        f"Real energy: {energy_delta:+.2f} J ({energy_pct:+.2f}%)\n"
-        f"Real latency: {latency_delta:+.4f} s ({latency_pct:+.2f}%)\n"
-        f"Model energy: {model_energy_delta:+.2f} ({model_energy_pct:+.2f}%)"
-    )
-    improvement_ax.text(
-        0.02,
-        0.94,
-        summary_text,
-        va="top",
-        fontsize=11,
-        family="monospace",
-    )
 
     fig.suptitle("Random vs Tabu + Diffusion", fontsize=15, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
@@ -324,8 +287,10 @@ def json_safe(value):
 
 def save_run_json(path, payload):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    temp_path = f"{path}.tmp"
+    with open(temp_path, "w") as f:
         json.dump(json_safe(payload), f, indent=2)
+    os.replace(temp_path, path)
     print(f"Run JSON saved: {path}")
 
 
@@ -401,7 +366,12 @@ for t in tasks[:5]:
         f"memory_demand={t['memory_demand']:.3f}"
     )
 
-res_random, _ = run_offline_experiment(tasks, "random", return_history=True)
+res_random, _ = run_offline_experiment(
+    tasks,
+    "random",
+    return_history=True,
+    phase_callback=report_experiment_phase,
+)
 metrics_random = compute_metrics(
     res_random,
     tasks,
@@ -413,8 +383,15 @@ print("\n=== RANDOM ===")
 print_metrics(metrics_random)
 print_sample_results(res_random, "RANDOM")
 
-E_ref = metrics_random["model_energy"]
-L_ref = metrics_random["model_avg_latency"]
+baseline_reference = compute_random_baseline_average_reference(
+    tasks,
+    nodes=NODE_RESOURCES,
+    trials=RANDOM_BASELINE_REFERENCE_TRIALS,
+    seed=BASELINE_SEED,
+    energy_model=OBJECTIVE_ENERGY_MODEL,
+)
+E_ref = baseline_reference["E_ref"]
+L_ref = baseline_reference["L_ref"]
 
 res_tabu_diff, history_tabu_diff = run_offline_experiment(
     tasks,
@@ -425,6 +402,7 @@ res_tabu_diff, history_tabu_diff = run_offline_experiment(
     local_mode="diffusion",
     tabu_energy_weight=OBJECTIVE_ENERGY_WEIGHT,
     tabu_energy_model=OBJECTIVE_ENERGY_MODEL,
+    phase_callback=report_experiment_phase,
 )
 P_ref = (
     history_tabu_diff.get("resource_pressure_ref")
@@ -444,34 +422,6 @@ print_sample_results(res_tabu_diff, "TABU + DIFFUSION")
 
 print("\n=== COMPARISON: RANDOM vs TABU + DIFFUSION ===")
 print_all_comparison_table(metrics_random, metrics_tabu_diff, n_tasks=N_TASKS)
-
-print("\n=== TASK CLOCK BREAKDOWN ===")
-print(f"RANDOM total task clock ms: {metrics_random['real_total_task_clock_ms']:.2f}")
-print(f"TABU + DIFFUSION total task clock ms:   {metrics_tabu_diff['real_total_task_clock_ms']:.2f}")
-
-print("\n=== ENERGY BREAKDOWN ===")
-print(f"RANDOM estimated energy: {metrics_random['estimated_real_energy_j']:.4f} J ({metrics_random['estimated_real_energy_kwh']:.8f} kWh)")
-print(f"TABU + DIFFUSION estimated energy:   {metrics_tabu_diff['estimated_real_energy_j']:.4f} J ({metrics_tabu_diff['estimated_real_energy_kwh']:.8f} kWh)")
-
-print("\nRANDOM task clock per node:")
-for node, clock_ms in calc_task_clock_per_node(res_random).items():
-    print(f"  {node}: {clock_ms:.2f} ms")
-
-print("\nTABU + DIFFUSION task clock per node:")
-for node, clock_ms in calc_task_clock_per_node(res_tabu_diff).items():
-    print(f"  {node}: {clock_ms:.2f} ms")
-
-print("\n=== MEMORY BREAKDOWN ===")
-print(f"RANDOM avg observed memory bytes: {metrics_random['real_avg_memory_bytes']:.2f}")
-print(f"TABU + DIFFUSION avg observed memory bytes:   {metrics_tabu_diff['real_avg_memory_bytes']:.2f}")
-
-print("\nRANDOM memory per node:")
-for node, mem_bytes in calc_memory_per_node(res_random).items():
-    print(f"  {node}: {mem_bytes:.0f} bytes")
-
-print("\nTABU + DIFFUSION memory per node:")
-for node, mem_bytes in calc_memory_per_node(res_tabu_diff).items():
-    print(f"  {node}: {mem_bytes:.0f} bytes")
 
 plot_path = PLOT_PATH.format(n_tasks=N_TASKS, run_id=RUN_ID)
 comparison_plot_path = COMPARISON_PLOT_PATH.format(n_tasks=N_TASKS, run_id=RUN_ID)
@@ -538,11 +488,13 @@ save_run_json(
             "random_baseline_mode": RANDOM_BASELINE_MODE,
             "random_baseline_dirichlet_alpha": RANDOM_BASELINE_DIRICHLET_ALPHA,
             "random_baseline_seed": BASELINE_SEED,
+            "random_baseline_reference_trials": RANDOM_BASELINE_REFERENCE_TRIALS,
         },
         "references": {
             "E_ref": E_ref,
             "L_ref": L_ref,
             "P_ref": P_ref,
+            "random_baseline_average": baseline_reference,
         },
         "tasks": tasks,
         "metrics": {
@@ -573,3 +525,4 @@ save_run_json(
         "terminal_output": TERMINAL_CAPTURE.snapshot(),
     },
 )
+report_experiment_phase("completed", "Random and optimized runs completed")

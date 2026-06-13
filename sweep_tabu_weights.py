@@ -1,6 +1,11 @@
 from statistics import mean
 
-from central.offline_runner import compute_metrics, run_offline_experiment
+from central.offline_runner import (
+    RANDOM_BASELINE_REFERENCE_TRIALS,
+    compute_metrics,
+    compute_random_baseline_average_reference,
+    run_offline_experiment,
+)
 from central.node_resources import NODE_RESOURCES
 from central.task_generator import generate_batch
 
@@ -29,11 +34,17 @@ def run_setting(energy_weight, resource_pressure_penalty_weight):
         )
         metrics_random = compute_metrics(res_random, tasks, NODE_RESOURCES)
 
+        baseline_reference = compute_random_baseline_average_reference(
+            tasks,
+            nodes=NODE_RESOURCES,
+            trials=RANDOM_BASELINE_REFERENCE_TRIALS,
+        )
+
         res_tabu, _ = run_offline_experiment(
             tasks,
             "tabu",
-            E_ref=metrics_random["model_total_energy"],
-            L_ref=metrics_random["model_avg_latency"],
+            E_ref=baseline_reference["E_ref"],
+            L_ref=baseline_reference["L_ref"],
             return_history=True,
             local_mode="none",
             tabu_energy_weight=energy_weight,

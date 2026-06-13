@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edge Computing Dashboard</title>
+    <script>
+        (() => {
+            const savedTheme = localStorage.getItem("dashboard-theme");
+            document.documentElement.dataset.theme = savedTheme || "dark";
+        })();
+    </script>
     <style>
         :root {
             --bg: #050510;
@@ -167,6 +173,36 @@
             font-weight: 700;
         }
 
+        .run-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 34px;
+            padding: 7px 13px;
+            border: 1px solid rgba(0, 240, 255, 0.58);
+            border-radius: 999px;
+            color: #031318;
+            background: var(--cyan);
+            box-shadow: 0 0 18px rgba(0, 240, 255, 0.18);
+            font: inherit;
+            font-size: 13px;
+            font-weight: 900;
+            cursor: pointer;
+        }
+
+        .run-button:hover:not(:disabled) {
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+        }
+
+        .run-button:disabled {
+            color: var(--muted);
+            border-color: var(--line);
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: none;
+            cursor: wait;
+        }
+
         .icon {
             width: 16px;
             height: 16px;
@@ -176,6 +212,70 @@
             fill: none;
             stroke-linecap: round;
             stroke-linejoin: round;
+        }
+
+        .experiment-progress {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.035);
+        }
+
+        .phase-step {
+            display: grid;
+            grid-template-columns: 30px minmax(0, 1fr);
+            gap: 10px;
+            align-items: center;
+            min-height: 58px;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(5, 5, 16, 0.42);
+        }
+
+        .phase-number {
+            display: grid;
+            place-items: center;
+            width: 30px;
+            height: 30px;
+            border: 1px solid var(--line-strong);
+            border-radius: 50%;
+            color: var(--muted);
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .phase-label { font-size: 13px; font-weight: 800; }
+        .phase-note { margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+        .phase-step.active {
+            border-color: rgba(0, 240, 255, 0.6);
+            background: rgba(0, 240, 255, 0.09);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.08);
+        }
+
+        .phase-step.active .phase-number {
+            color: var(--bg);
+            background: var(--cyan);
+            box-shadow: 0 0 14px rgba(0, 240, 255, 0.45);
+        }
+
+        .phase-step.done { border-color: rgba(48, 209, 125, 0.32); }
+        .phase-step.done .phase-number { color: var(--green); border-color: rgba(48, 209, 125, 0.5); }
+
+        .experiment-meta {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: var(--muted);
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 11px;
         }
 
         .summary-grid {
@@ -235,6 +335,82 @@
             margin-top: 7px;
             color: var(--muted);
             font-size: 12px;
+        }
+
+        .results-panel { margin-top: 14px; }
+
+        .results-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .convergence-grid {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .result-stat {
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.035);
+        }
+
+        .result-stat span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .result-stat strong {
+            display: block;
+            margin-top: 7px;
+            font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+            font-size: 16px;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: minmax(360px, 0.8fr) minmax(0, 1.2fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 10px;
+            border-bottom: 1px solid var(--line);
+            text-align: right;
+        }
+
+        .comparison-table th:first-child,
+        .comparison-table td:first-child { text-align: left; }
+        .comparison-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+        .comparison-table td:not(:first-child) { font-family: "Fira Code", "Cascadia Code", Consolas, monospace; }
+
+        .result-visuals { display: grid; gap: 14px; }
+        .result-figure { margin: 0; }
+        .result-figure figcaption { margin-bottom: 8px; font-size: 13px; font-weight: 800; }
+        .result-image {
+            display: block;
+            width: 100%;
+            min-height: 220px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: #fff;
+            object-fit: contain;
         }
 
         .main-grid {
@@ -450,6 +626,25 @@
             gap: 10px;
         }
 
+        .task-list {
+            max-height: 430px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding-right: 6px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--line-strong) rgba(255, 255, 255, 0.04);
+        }
+
+        .task-list::-webkit-scrollbar { width: 8px; }
+        .task-list::-webkit-scrollbar-track {
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+        }
+        .task-list::-webkit-scrollbar-thumb {
+            border-radius: 999px;
+            background: var(--line-strong);
+        }
+
         .distribution-row {
             display: grid;
             grid-template-columns: 64px minmax(0, 1fr) 54px;
@@ -540,7 +735,8 @@
 
         @media (max-width: 1180px) {
             .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-            .main-grid { grid-template-columns: 1fr; }
+            .convergence-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .main-grid, .results-grid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 860px) {
@@ -550,13 +746,16 @@
         }
 
         @media (max-width: 620px) {
+            .task-list { max-height: 340px; }
             .shell {
                 width: min(100% - 20px, 1480px);
                 padding-top: 12px;
             }
 
             .summary-grid,
-            .node-grid {
+            .node-grid,
+            .experiment-progress,
+            .convergence-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -568,6 +767,119 @@
 
             .distribution-row {
                 grid-template-columns: 58px minmax(0, 1fr) 44px;
+            }
+        }
+
+        :root { color-scheme: dark; }
+
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #eef4f8;
+            --bg-2: #f8fbfd;
+            --panel: rgba(255, 255, 255, 0.94);
+            --panel-2: rgba(244, 249, 252, 0.96);
+            --line: rgba(8, 93, 112, 0.17);
+            --line-strong: rgba(8, 93, 112, 0.34);
+            --text: #10212b;
+            --muted: #536b78;
+            --cyan: #007f91;
+            --purple: #6947d7;
+            --green: #128652;
+            --amber: #a75a00;
+            --red: #c5304b;
+            --shadow: 0 18px 50px rgba(27, 61, 76, 0.13);
+        }
+
+        :root[data-theme="light"] body {
+            background:
+                radial-gradient(circle at 18% 8%, rgba(0, 127, 145, 0.1), transparent 30%),
+                radial-gradient(circle at 82% 4%, rgba(105, 71, 215, 0.08), transparent 32%),
+                linear-gradient(180deg, var(--bg), var(--bg-2) 48%, #e8f0f5);
+        }
+
+        :root[data-theme="light"] .toolbar,
+        :root[data-theme="light"] .experiment-progress,
+        :root[data-theme="light"] .result-stat,
+        :root[data-theme="light"] .distribution-row {
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        :root[data-theme="light"] .chip,
+        :root[data-theme="light"] .phase-step {
+            background: rgba(237, 245, 249, 0.92);
+        }
+
+        :root[data-theme="light"] .gateway-pill,
+        :root[data-theme="light"] .panel-head,
+        :root[data-theme="light"] .task-row,
+        :root[data-theme="light"] .topology-node,
+        :root[data-theme="light"] .empty,
+        :root[data-theme="light"] .badge {
+            background: rgba(7, 40, 54, 0.035);
+        }
+
+        :root[data-theme="light"] .node-card:hover,
+        :root[data-theme="light"] .node-card.offline {
+            background: rgba(237, 245, 249, 0.96);
+        }
+
+        :root[data-theme="light"] .bar {
+            background: rgba(7, 40, 54, 0.1);
+        }
+
+        :root[data-theme="light"] .skeleton::after {
+            background: linear-gradient(90deg, transparent, rgba(0, 127, 145, 0.08), transparent);
+        }
+
+        :root[data-theme="light"] .phase-step.active {
+            background: rgba(0, 127, 145, 0.1);
+            border-color: rgba(0, 127, 145, 0.45);
+        }
+
+        :root[data-theme="light"] .phase-step.active .phase-number { color: #fff; }
+
+        :root[data-theme="light"] .run-button {
+            color: #fff;
+            border-color: #007f91;
+            box-shadow: 0 8px 20px rgba(0, 127, 145, 0.18);
+        }
+
+        .theme-button {
+            display: inline-grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            border: 1px solid var(--line);
+            border-radius: 50%;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.04);
+            cursor: pointer;
+            transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease;
+        }
+
+        :root[data-theme="light"] .theme-button { background: rgba(255, 255, 255, 0.72); }
+
+        .theme-button:hover {
+            border-color: var(--line-strong);
+            background: rgba(0, 240, 255, 0.09);
+        }
+
+        .theme-button:focus-visible,
+        .run-button:focus-visible {
+            outline: 3px solid var(--line-strong);
+            outline-offset: 2px;
+        }
+
+        .theme-icon-sun,
+        :root[data-theme="light"] .theme-icon-moon { display: none; }
+        :root[data-theme="light"] .theme-icon-sun { display: block; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
             }
         }
     </style>
@@ -598,8 +910,35 @@
                 </span>
             </div>
             <div class="toolbar-group">
+                <button class="theme-button" id="theme-toggle" type="button" aria-label="Switch to light mode" aria-pressed="false" title="Switch theme">
+                    <svg class="icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/></svg>
+                    <svg class="icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.42 1.42"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.42"/></svg>
+                </button>
                 <span class="chip" id="node-refresh">Nodes loading</span>
                 <span class="chip" id="task-total">0 tasks</span>
+                <button class="run-button" id="run-experiment" type="button">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>
+                    <span id="run-experiment-label">Run Experiment</span>
+                </button>
+            </div>
+        </section>
+
+        <section class="experiment-progress" aria-label="Experiment progress" aria-live="polite">
+            <article class="phase-step" id="phase-random_run">
+                <span class="phase-number">1</span>
+                <div><div class="phase-label">Random Run</div><div class="phase-note">Baseline task execution</div></div>
+            </article>
+            <article class="phase-step" id="phase-optimization">
+                <span class="phase-number">2</span>
+                <div><div class="phase-label">Optimization</div><div class="phase-note">Tabu + Diffusion search</div></div>
+            </article>
+            <article class="phase-step" id="phase-optimized_run">
+                <span class="phase-number">3</span>
+                <div><div class="phase-label">Optimized Result Run</div><div class="phase-note">Execute optimized assignment</div></div>
+            </article>
+            <div class="experiment-meta">
+                <span id="experiment-message">No experiment is running</span>
+                <span id="experiment-run-id">Run: -</span>
             </div>
         </section>
 
@@ -630,9 +969,9 @@
                 <div class="metric-note">Dispatch or execution errors</div>
             </article>
             <article class="card metric-card">
-                <div class="metric-label">Avg CPU <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4v6H4z"/><path d="M10 9h4v11h-4z"/><path d="M16 4h4v16h-4z"/></svg></div>
+                <div class="metric-label">Live CPU <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4v6H4z"/><path d="M10 9h4v11h-4z"/><path d="M16 4h4v16h-4z"/></svg></div>
                 <div class="metric-value" id="avg-cpu">-</div>
-                <div class="metric-note">Across connected nodes</div>
+                <div class="metric-note">Capacity-weighted across nodes</div>
             </article>
         </section>
 
@@ -687,6 +1026,45 @@
             </aside>
         </section>
 
+        <section class="panel results-panel" aria-label="Latest experiment results">
+            <div class="panel-head">
+                <div class="panel-title">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></svg>
+                    <h2>Latest Completed Run</h2>
+                </div>
+                <div class="results-meta">
+                    <span class="badge" id="result-run-id">Waiting for result</span>
+                    <span class="badge" id="result-captured-at">-</span>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="convergence-grid" id="convergence-summary">
+                    <div class="empty skeleton">Loading latest convergence result...</div>
+                </div>
+                <div class="results-grid">
+                    <div>
+                        <h3 style="margin-bottom:10px;font-size:14px">Random vs Tabu Comparison</h3>
+                        <div style="overflow-x:auto">
+                            <table class="comparison-table">
+                                <thead><tr><th>Metric</th><th>Random</th><th>Tabu</th></tr></thead>
+                                <tbody id="comparison-table-body"><tr><td colspan="3">Loading latest result...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="result-visuals">
+                        <figure class="result-figure">
+                            <figcaption>Tabu Convergence</figcaption>
+                            <img class="result-image" id="convergence-image" alt="Latest Tabu convergence plot">
+                        </figure>
+                        <figure class="result-figure">
+                            <figcaption>Random vs Tabu Metrics</figcaption>
+                            <img class="result-image" id="comparison-image" alt="Latest Random versus Tabu comparison plot">
+                        </figure>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <footer class="footer">
             <span>Node cards are rendered in fixed numeric order from edge-1 through edge-9.</span>
             <span id="api-note">API: current origin</span>
@@ -697,8 +1075,28 @@
         const API_BASE = window.location.origin;
         const DEFAULT_NODE_ORDER = Array.from({ length: 9 }, (_, index) => `edge-${index + 1}`);
         const statusRank = { failed: 5, processing: 4, queued: 3, pending: 2, completed: 1 };
+        let renderedResultRunId = null;
 
         document.getElementById("api-note").textContent = `API: ${API_BASE}`;
+        document.getElementById("run-experiment").addEventListener("click", startExperiment);
+        document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+
+        function syncThemeButton() {
+            const isLight = document.documentElement.dataset.theme === "light";
+            const button = document.getElementById("theme-toggle");
+            button.setAttribute("aria-pressed", String(isLight));
+            button.setAttribute("aria-label", isLight ? "Switch to dark mode" : "Switch to light mode");
+            button.title = isLight ? "Switch to dark mode" : "Switch to light mode";
+        }
+
+        function toggleTheme() {
+            const nextTheme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+            document.documentElement.dataset.theme = nextTheme;
+            localStorage.setItem("dashboard-theme", nextTheme);
+            syncThemeButton();
+        }
+
+        syncThemeButton();
 
         function el(id) {
             return document.getElementById(id);
@@ -751,20 +1149,57 @@
             return response.json();
         }
 
+        async function fetchOptionalJson(path) {
+            const response = await fetch(API_BASE + path, { cache: "no-store" });
+            if (response.status === 404) return null;
+            if (!response.ok) throw new Error(path + " returned " + response.status);
+            return response.json();
+        }
+
+        async function startExperiment() {
+            if (!window.confirm("Run main.py now? The experiment will continue in the background.")) return;
+
+            const button = el("run-experiment");
+            const label = el("run-experiment-label");
+            button.disabled = true;
+            label.textContent = "Starting...";
+
+            try {
+                const response = await fetch(API_BASE + "/experiment/run", {
+                    method: "POST",
+                    headers: { "Accept": "application/json" },
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(payload.detail || "Could not start experiment");
+                }
+                el("experiment-message").textContent = payload.message || "Experiment is starting";
+                await updateDashboard();
+            } catch (error) {
+                window.alert(error.message);
+                button.disabled = false;
+                label.textContent = "Run Experiment";
+            }
+        }
+
         async function updateDashboard() {
             try {
-                const [health, nodesData, tasksData] = await Promise.all([
+                const [health, nodesData, tasksData, experimentData, resultsData] = await Promise.all([
                     fetchJson("/health"),
                     fetchJson("/nodes/status"),
                     fetchJson("/tasks"),
+                    fetchJson("/experiment/status"),
+                    fetchOptionalJson("/experiment/results/latest"),
                 ]);
 
                 renderGateway(health);
-                renderSummary(nodesData, tasksData);
+                renderSummary(nodesData, tasksData, experimentData);
                 renderTopology(nodesData);
                 renderNodes(nodesData);
                 renderDistribution(nodesData);
                 renderTasks(tasksData);
+                renderExperiment(experimentData);
+                renderLatestResults(resultsData);
                 el("last-update").textContent = `Last update: ${new Date().toLocaleTimeString()}`;
             } catch (error) {
                 el("gateway-status").innerHTML = `<span class="pulse bad"></span>Disconnected`;
@@ -784,13 +1219,71 @@
             el("gateway-status").innerHTML = `<span class="pulse ${ok ? "good" : "bad"}"></span>Gateway ${ok ? "Online" : health.status}`;
         }
 
-        function renderSummary(nodesData, tasksData) {
+        function renderExperiment(data) {
+            const phases = ["random_run", "optimization", "optimized_run"];
+            const activeIndex = phases.indexOf(data.phase);
+            const allDone = data.phase === "completed";
+            const isRunning = Boolean(data.process_running) || activeIndex >= 0;
+
+            phases.forEach((phase, index) => {
+                const step = el(`phase-${phase}`);
+                step.classList.toggle("active", index === activeIndex);
+                step.classList.toggle("done", allDone || activeIndex > index);
+            });
+
+            el("experiment-message").textContent = data.message || "No experiment is running";
+            el("experiment-run-id").textContent = `Run: ${data.run_id || "-"}`;
+            el("run-experiment").disabled = isRunning;
+            el("run-experiment-label").textContent = isRunning ? "Experiment Running" : "Run Experiment";
+        }
+
+        function formatResultNumber(value, digits = 4) {
+            const number = Number(value);
+            return Number.isFinite(number) ? number.toFixed(digits) : "-";
+        }
+
+        function renderLatestResults(data) {
+            if (!data) {
+                el("result-run-id").textContent = "No completed run";
+                el("result-captured-at").textContent = "-";
+                el("convergence-summary").innerHTML = "<div class=\"empty\">Run main.py to generate dashboard results.</div>";
+                el("comparison-table-body").innerHTML = "<tr><td colspan=\"3\">No completed result available.</td></tr>";
+                return;
+            }
+
+            el("result-run-id").textContent = "Run " + data.run_id;
+            const captured = parseTime(data.captured_at);
+            el("result-captured-at").textContent = captured ? captured.toLocaleString() : (data.captured_at || "-");
+
+            const convergence = data.convergence || {};
+            const stats = [
+                ["Tasks", data.n_tasks ?? "-"],
+                ["Iterations", convergence.iterations ?? "-"],
+                ["Initial objective", formatResultNumber(convergence.initial_objective)],
+                ["Final objective", formatResultNumber(convergence.final_objective)],
+                ["Best iteration", convergence.best_iteration ?? "-"],
+                ["Improvement", convergence.improvement_pct == null ? "-" : formatResultNumber(convergence.improvement_pct, 2) + "%"],
+            ];
+            el("convergence-summary").innerHTML = stats.map(([label, value]) =>
+                "<div class=\"result-stat\"><span>" + label + "</span><strong>" + value + "</strong></div>"
+            ).join("");
+
+            el("comparison-table-body").innerHTML = (data.comparison_rows || []).map((row) =>
+                "<tr><td>" + row.metric + "</td><td>" + formatResultNumber(row.random) + "</td><td>" + formatResultNumber(row.tabu) + "</td></tr>"
+            ).join("") || "<tr><td colspan=\"3\">Comparison data unavailable.</td></tr>";
+
+            if (renderedResultRunId !== data.run_id) {
+                renderedResultRunId = data.run_id;
+                el("convergence-image").src = API_BASE + data.images.convergence;
+                el("comparison-image").src = API_BASE + data.images.comparison;
+            }
+        }
+
+        function renderSummary(nodesData, tasksData, experimentData) {
             const nodes = nodesData.nodes || {};
             const entries = Object.values(nodes).filter(Boolean);
             const fresh = entries.filter((node) => !isStale(node));
-            const avgCpu = fresh.length
-                ? fresh.reduce((sum, node) => sum + Number(node.cpu_usage || 0), 0) / fresh.length
-                : 0;
+            const liveCpu = Number(experimentData.cpu?.live_weighted || 0);
             const counts = tasksData.counts || {};
 
             el("online-nodes").textContent = fresh.length;
@@ -798,7 +1291,7 @@
             el("active-tasks").textContent = (counts.pending || 0) + (counts.queued || 0) + (counts.processing || 0);
             el("completed-tasks").textContent = counts.completed || 0;
             el("failed-tasks").textContent = counts.failed || 0;
-            el("avg-cpu").textContent = fresh.length ? `${avgCpu.toFixed(1)}%` : "0%";
+            el("avg-cpu").textContent = fresh.length ? liveCpu.toFixed(1) + "%" : "0%";
             el("node-refresh").textContent = `${fresh.length}/${nodeOrder(nodesData).length} online`;
             el("task-total").textContent = `${counts.total || 0} tasks`;
         }

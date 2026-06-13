@@ -11,6 +11,7 @@ import time
 import subprocess
 import socket
 import json
+from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,13 +23,50 @@ logger = logging.getLogger(__name__)
 
 NODE_ID = os.getenv("NODE_ID", "edge-6")
 NODE_PORT = int(os.getenv("NODE_PORT", "8006"))
-MAX_CONCURRENT_TASKS = 2
+
+NODE_RESOURCE_CAPS = {
+    "edge-1": {"cpu": 2.0, "mem": 2.0},
+    "edge-2": {"cpu": 2.0, "mem": 2.0},
+    "edge-3": {"cpu": 2.0, "mem": 2.0},
+    "edge-4": {"cpu": 4.0, "mem": 4.0},
+    "edge-5": {"cpu": 4.0, "mem": 4.0},
+    "edge-6": {"cpu": 4.0, "mem": 4.0},
+    "edge-7": {"cpu": 8.0, "mem": 8.0},
+    "edge-8": {"cpu": 8.0, "mem": 8.0},
+    "edge-9": {"cpu": 8.0, "mem": 8.0},
+}
+
+
+def default_hard_cap(cpu_cap):
+    if cpu_cap >= 8:
+        return 4
+    if cpu_cap >= 4:
+        return 3
+    return 2
+
+
+NODE_CAPS = NODE_RESOURCE_CAPS.get(
+    NODE_ID,
+    {
+        "cpu": float(os.cpu_count() or 1),
+        "mem": psutil.virtual_memory().total / (1024 ** 3),
+    },
+)
+NODE_CPU_CAP = float(os.getenv("NODE_CPU_CAP", NODE_CAPS["cpu"]))
+NODE_MEM_CAP = float(os.getenv("NODE_MEM_CAP", NODE_CAPS["mem"]))
+CPU_ADMISSION_THRESHOLD = float(os.getenv("CPU_ADMISSION_THRESHOLD", "0.85"))
+MEM_ADMISSION_THRESHOLD = float(os.getenv("MEM_ADMISSION_THRESHOLD", "0.80"))
+MAX_CONCURRENT_TASKS = int(
+    os.getenv("MAX_CONCURRENT_TASKS", str(default_hard_cap(NODE_CPU_CAP)))
+)
 
 app = FastAPI(title=f"Edge Node {NODE_ID}")
 
 task_results = {}
 task_runtime = {}
-semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+running_task_resources = {}
+running_cpu_demand = 0.0
+running_memory_demand = 0.0
 
 
 def append_execution_log(task_id, status, extra=None):
@@ -177,22 +215,128 @@ async def startup():
     logger.info(f"Edge Node started: {NODE_ID}")
     logger.info(f"Listening on port {NODE_PORT}")
     logger.info(f"Central Gateway: {CENTRAL_IP}:{CENTRAL_PORT}")
+    logger.info(
+        "Admission control: "
+        f"cpu_cap={NODE_CPU_CAP} mem_cap={NODE_MEM_CAP} "
+        f"hard_cap={MAX_CONCURRENT_TASKS} "
+        f"cpu_threshold={CPU_ADMISSION_THRESHOLD} "
+        f"mem_threshold={MEM_ADMISSION_THRESHOLD}"
+    )
 
-    app.state.task_queue = asyncio.Queue()
+    app.state.task_queue = deque()
+    app.state.queue_condition = asyncio.Condition()
 
-    for _ in range(MAX_CONCURRENT_TASKS):
-        asyncio.create_task(worker_loop())
-
+    asyncio.create_task(dispatcher_loop())
     asyncio.create_task(heartbeat())
 
 
-async def worker_loop():
+def task_demands(task: Task):
+    return float(task.cpu_demand), float(task.memory_demand)
+
+
+def running_count():
+    return len(running_task_resources)
+
+
+def queued_count():
+    return len(app.state.task_queue)
+
+
+def capacity_snapshot():
+    return {
+        "running_count": running_count(),
+        "queue_size": queued_count(),
+        "max_concurrent_tasks": MAX_CONCURRENT_TASKS,
+        "node_cpu_cap": NODE_CPU_CAP,
+        "node_mem_cap": NODE_MEM_CAP,
+        "cpu_admission_threshold": CPU_ADMISSION_THRESHOLD,
+        "mem_admission_threshold": MEM_ADMISSION_THRESHOLD,
+        "running_cpu_demand": running_cpu_demand,
+        "running_memory_demand": running_memory_demand,
+        "available_cpu_budget": max(
+            0.0,
+            (NODE_CPU_CAP * CPU_ADMISSION_THRESHOLD) - running_cpu_demand,
+        ),
+        "available_memory_budget": max(
+            0.0,
+            (NODE_MEM_CAP * MEM_ADMISSION_THRESHOLD) - running_memory_demand,
+        ),
+    }
+
+
+def can_start_task(task: Task):
+    cpu_demand, memory_demand = task_demands(task)
+
+    if running_count() >= MAX_CONCURRENT_TASKS:
+        return False
+
+    if running_count() == 0:
+        return memory_demand <= NODE_MEM_CAP * 0.95
+
+    projected_cpu = running_cpu_demand + cpu_demand
+    projected_memory = running_memory_demand + memory_demand
+
+    return (
+        projected_cpu <= NODE_CPU_CAP * CPU_ADMISSION_THRESHOLD
+        and projected_memory <= NODE_MEM_CAP * MEM_ADMISSION_THRESHOLD
+    )
+
+
+def find_startable_task_index():
+    for index, task in enumerate(app.state.task_queue):
+        if can_start_task(task):
+            return index
+    return None
+
+
+def reserve_task_resources(task: Task):
+    global running_cpu_demand, running_memory_demand
+
+    cpu_demand, memory_demand = task_demands(task)
+    running_task_resources[task.task_id] = {
+        "cpu_demand": cpu_demand,
+        "memory_demand": memory_demand,
+    }
+    running_cpu_demand += cpu_demand
+    running_memory_demand += memory_demand
+
+
+def release_task_resources(task_id: str):
+    global running_cpu_demand, running_memory_demand
+
+    resources = running_task_resources.pop(task_id, None)
+    if resources is None:
+        return
+
+    running_cpu_demand = max(
+        0.0,
+        running_cpu_demand - float(resources.get("cpu_demand", 0.0)),
+    )
+    running_memory_demand = max(
+        0.0,
+        running_memory_demand - float(resources.get("memory_demand", 0.0)),
+    )
+
+
+async def notify_dispatcher():
+    async with app.state.queue_condition:
+        app.state.queue_condition.notify_all()
+
+
+async def dispatcher_loop():
     while True:
-        task = await app.state.task_queue.get()
-        try:
-            await process_task(task)
-        finally:
-            app.state.task_queue.task_done()
+        async with app.state.queue_condition:
+            while True:
+                task_index = find_startable_task_index()
+                if task_index is not None:
+                    task = app.state.task_queue[task_index]
+                    del app.state.task_queue[task_index]
+                    reserve_task_resources(task)
+                    break
+
+                await app.state.queue_condition.wait()
+
+        asyncio.create_task(process_task(task))
 
 
 @app.get("/health")
@@ -202,7 +346,7 @@ async def health_check():
         "node_id": NODE_ID,
         "cpu_usage": psutil.cpu_percent(interval=None),
         "memory_usage": psutil.virtual_memory().percent,
-        "queue_size": app.state.task_queue.qsize(),
+        **capacity_snapshot(),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -232,14 +376,18 @@ async def receive_task(task: Task):
         "task_id": task.task_id,
         "status": "queued",
         "node_id": NODE_ID,
+        "admission": capacity_snapshot(),
     }
 
-    await app.state.task_queue.put(task)
+    async with app.state.queue_condition:
+        app.state.task_queue.append(task)
+        app.state.queue_condition.notify_all()
 
     return {
         "task_id": task.task_id,
         "status": "queued",
         "node_id": NODE_ID,
+        "admission": capacity_snapshot(),
     }
 
 
@@ -256,69 +404,85 @@ async def get_executions():
         "node_id": NODE_ID,
         "hostname": socket.gethostname(),
         "tasks": task_results,
+        "admission": capacity_snapshot(),
+        "running_tasks": running_task_resources,
     }
 
 
 async def process_task(task: Task):
-    async with semaphore:
-        runtime = task_runtime.setdefault(task.task_id, {})
-        runtime["started_at"] = time.time()
+    runtime = task_runtime.setdefault(task.task_id, {})
+    runtime["started_at"] = time.time()
+
+    task_results[task.task_id] = {
+        "task_id": task.task_id,
+        "status": "processing",
+        "node_id": NODE_ID,
+        "admission": capacity_snapshot(),
+    }
+
+    try:
+        result_payload, exec_time = await execute_task(task)
+
+        completed_ts = time.time()
+        queued_at = runtime.get("queued_at", completed_ts)
+        latency = completed_ts - queued_at
+        runtime["completed_at_ts"] = completed_ts
 
         task_results[task.task_id] = {
             "task_id": task.task_id,
-            "status": "processing",
+            "status": "completed",
             "node_id": NODE_ID,
+            "latency": latency,
+            "execution_time": exec_time,
+            "result": result_payload,
         }
 
-        try:
-            result_payload, exec_time = await execute_task(task)
-
-            completed_ts = time.time()
-            queued_at = runtime.get("queued_at", completed_ts)
-            latency = completed_ts - queued_at
-            runtime["completed_at_ts"] = completed_ts
-
-            task_results[task.task_id] = {
-                "task_id": task.task_id,
-                "status": "completed",
-                "node_id": NODE_ID,
+        result = TaskResult(
+            task_id=task.task_id,
+            status="completed",
+            result={
+                **result_payload,
                 "latency": latency,
-                "execution_time": exec_time,
-                "result": result_payload,
-            }
+            },
+            node_id=NODE_ID,
+            completed_at=datetime.now(),
+        )
 
-            result = TaskResult(
-                task_id=task.task_id,
-                status="completed",
-                result={
-                    **result_payload,
-                    "latency": latency,
-                },
-                node_id=NODE_ID,
-                completed_at=datetime.now(),
-            )
+        await submit_result(result)
 
-            await submit_result(result)
+        logger.info(
+            f"Task completed: {task.task_id} | task_clock_ms={result_payload['observed_task_clock_ms']:.3f} | mem={result_payload['observed_memory_bytes']}"
+        )
 
-            logger.info(
-                f"Task completed: {task.task_id} | task_clock_ms={result_payload['observed_task_clock_ms']:.3f} | mem={result_payload['observed_memory_bytes']}"
-            )
+    except Exception as e:
+        logger.error(f"Task failed: {task.task_id} | error={e}")
 
-        except Exception as e:
-            logger.error(f"Task failed: {task.task_id} | error={e}")
+        append_execution_log(
+            task.task_id,
+            "failed",
+            {"error": str(e)},
+        )
 
-            append_execution_log(
-                task.task_id,
-                "failed",
-                {"error": str(e)},
-            )
+        task_results[task.task_id] = {
+            "task_id": task.task_id,
+            "status": "failed",
+            "node_id": NODE_ID,
+            "error": str(e),
+        }
 
-            task_results[task.task_id] = {
-                "task_id": task.task_id,
-                "status": "failed",
-                "node_id": NODE_ID,
-                "error": str(e),
-            }
+        result = TaskResult(
+            task_id=task.task_id,
+            status="failed",
+            result=None,
+            error=str(e),
+            node_id=NODE_ID,
+            completed_at=datetime.now(),
+        )
+        await submit_result(result)
+
+    finally:
+        release_task_resources(task.task_id)
+        await notify_dispatcher()
 
 
 async def submit_result(result: TaskResult):
@@ -345,7 +509,7 @@ async def heartbeat():
                 status="healthy",
                 cpu_usage=cpu_percent,
                 memory_usage=memory_percent,
-                tasks_count=app.state.task_queue.qsize(),
+                tasks_count=queued_count() + running_count(),
                 last_heartbeat=datetime.now(),
             )
 
